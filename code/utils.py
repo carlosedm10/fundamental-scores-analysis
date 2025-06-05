@@ -8,7 +8,15 @@ import pandas as pd
 import seaborn as sns
 import statsmodels.api as sm
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from statsmodels.tsa.seasonal import seasonal_decompose
+from sklearn.preprocessing import PowerTransformer
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import IsolationForest
+from sklearn.svm import OneClassSVM
+from sklearn.neighbors import LocalOutlierFactor
+from sklearn.model_selection import KFold
+from sklearn.metrics import mean_squared_error, r2_score
+from pygam import LinearGAM, s
+from functools import reduce
 
 
 ################################### DATA  ###################################
@@ -76,23 +84,108 @@ def separate_df_by_scores(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
 
 
 ############################ OUTLIERS ############################
-def iqr_outliers(
+def gaussian_yj_transform(x: pd.Series) -> pd.Series:
+    """
+    Transform the target variable to a Gaussian distribution using Yeo-Johnson transformation.
+    """
+    transformer = PowerTransformer(method="yeo-johnson", standardize=True)
+    return pd.Series(
+        transformer.fit_transform(x.values.reshape(-1, 1)).ravel(),
+        index=x.index,
+    )
+
+
+def iqr_outliers_removal(
     df: pd.DataFrame,
     columns: list[str],
     tolerance: float = 0.05,
 ) -> pd.DataFrame:
     """
-    Detect outliers using the IQR method.
+    Detect outliers using the IQR method, and removes them.
     """
+    df_copy = df.copy()
     for column in columns:
-        q1 = df[column].quantile(tolerance)
-        q3 = df[column].quantile(1 - tolerance)
+        q1 = df_copy[column].quantile(tolerance)
+        q3 = df_copy[column].quantile(1 - tolerance)
         iqr = q3 - q1
         lower_bound = q1 - 1.5 * iqr
         upper_bound = q3 + 1.5 * iqr
-        df = df[df[column].between(lower_bound, upper_bound)]
+        df_copy = df_copy[df_copy[column].between(lower_bound, upper_bound)]
 
-    return df
+    return df_copy
+
+
+def if_outliers(
+    df: pd.DataFrame, columns: list[str], tolerance: float = 0.05
+) -> np.ndarray:
+    """
+    Detect outliers using the Isolation Forest method.
+    Note that the columns have to be scaled before using this function.
+    """
+    Y = df[columns]
+    iso_forest = IsolationForest(
+        n_estimators=200, contamination=tolerance, random_state=42
+    )
+    iso_forest.fit(Y)
+
+    outliers_iso = iso_forest.predict(Y)
+    return outliers_iso
+
+
+def svm_outliers(
+    df: pd.DataFrame, columns: list[str], tolerance: float = 0.05
+) -> np.ndarray:
+    """
+    Detect outliers using the SVM method.
+    Note that the columns have to be scaled before using this function.
+    """
+    Y = df[columns]
+    # Initialize and fit model
+    svm = OneClassSVM(nu=0.05)
+    svm.fit(Y)
+
+    outliers_ocsvm = svm.predict(Y)
+    return outliers_ocsvm
+
+
+def lof_outliers(
+    df: pd.DataFrame, columns: list[str], tolerance: float = 0.05
+) -> np.ndarray:
+    """
+    Detect outliers using the Local Outlier Factor method.
+    Note that the columns have to be scaled before using this function.
+    """
+    Y = df[columns]
+    lof = LocalOutlierFactor(n_neighbors=20, contamination=tolerance)
+
+    outliers_lof = lof.fit_predict(Y)
+    return outliers_lof
+
+
+def multicretieria_outliers(
+    df: pd.DataFrame, columns: list[str], tolerance: float = 0.05
+) -> np.ndarray:
+    """
+    Detect outliers using the Multi-criteria method.
+    """
+    df_copy = df.copy()
+
+    # Transform the data to a Gaussian distribution
+    for column in columns:
+        df_copy[column] = gaussian_yj_transform(df_copy[column])
+
+    # Detect outliers using the Isolation Forest method
+    outliers_iso = if_outliers(df_copy, columns, tolerance)
+
+    # Detect outliers using the SVM method
+    outliers_svm = svm_outliers(df_copy, columns, tolerance)
+
+    # Detect outliers using the Local Outlier Factor method
+    outliers_lof = lof_outliers(df_copy, columns, tolerance)
+
+    # Combine the outliers using the intersection
+    true_outliers = outliers_iso & outliers_svm & outliers_lof
+    return true_outliers
 
 
 ############################ PLOTS ############################
@@ -223,6 +316,9 @@ def pairplot(
 def model_summary(
     summary_df: pd.DataFrame, order: list[str], export_path: str | None = None
 ):
+    """
+    Plot a heatmap and a barplot of the model summary.
+    """
     # Create pivot table and reorder columns
     heatmap_data = summary_df.pivot(
         index="score_type", columns="profit", values="r2_score"
@@ -251,13 +347,10 @@ def model_summary(
     ax2.set_xlabel("Profit Horizon")
 
     plt.tight_layout()
-    heatmap_path = "past_r2_scores_heatmap.png"
-    plt.savefig(heatmap_path, dpi=300)
-    plt.show()
 
     if export_path:
         plt.savefig(export_path)
-        plt.show()
+        plt.close()
     else:
         plt.show()
 
@@ -268,6 +361,15 @@ def plot_residual_diagnostics(
     title: str,
     export_path: str | None = None,
 ):
+    """
+    Plot the residual diagnostics of a model:
+    - Residuals vs. Time
+    - Residuals vs. Fitted Values
+    - Autocorrelation
+    - Partial Autocorrelation
+    - Q-Q Plot
+    - Histogram of Residuals
+    """
     fig, axs = plt.subplots(3, 2, figsize=(14, 12))
     fig.suptitle(f"Residual Diagnostics: {title}", fontsize=16)
 
@@ -315,7 +417,7 @@ def plot_residual_diagnostics(
 
 
 def simple_backward_regression(
-    X: pd.Series, y: pd.Series, threshold: float = 0.20
+    X: pd.DataFrame, y: pd.Series, threshold: float = 0.20
 ) -> dict:
     """
     Perform simple backward elimination regression.
@@ -343,6 +445,7 @@ def simple_backward_regression(
     final_features = X.columns.tolist()
     final_model = sm.OLS(y, X).fit()
     summary = {
+        "model": final_model,
         "summary": final_model.summary(),
         "X_cols": final_features,
         "y_true": y.copy(),
@@ -359,4 +462,153 @@ def simple_backward_regression(
         ),
         "removed_features": removed_features,
     }
+    return summary
+
+
+def gam_backward_regression(
+    X: pd.DataFrame, y: pd.Series, threshold: float = 0.20
+) -> dict:
+    """
+    Perform backward elimination regression using Generalized Additive Models.
+    """
+    removed_features = []
+    current_X = X.copy()
+
+    # Backward elimination loop
+    while True:
+        # Fit GAM model
+        gam = LinearGAM(n_splines=25).gridsearch(current_X, y)
+
+        # Get p-values for each feature
+        pvalues = pd.Series(
+            gam.statistics_["p_values"], index=current_X.columns
+        )
+
+        if (pvalues <= threshold).all() or len(pvalues) == 0:
+            break
+
+        # Drop the feature with the highest p-value
+        worst_feature = pvalues.idxmax()
+        current_X = current_X.drop(columns=worst_feature)
+        removed_features.append(worst_feature)
+
+    # Final model after elimination
+    final_features = current_X.columns.tolist()
+    final_gam = LinearGAM().fit(current_X, y)
+
+    summary = {
+        "model": final_gam,
+        "summary": final_gam.summary(),
+        "X_cols": final_features,
+        "y_true": y.copy(),
+        "y_pred": final_gam.fittedvalues.copy(),
+        "residuals": final_gam.resid.copy(),
+        "r2_score": final_gam.rsquared,
+        "adjusted_r2": final_gam.rsquared_adj,
+        "n_features": len(final_features),
+        "n_region_dummies": len(
+            [col for col in final_features if "region_" in col]
+        ),
+        "n_sector_dummies": len(
+            [col for col in final_features if "sector_" in col]
+        ),
+        "removed_features": removed_features,
+    }
+    return summary
+
+
+def simple_backward_gam(X, y, threshold=0.01):
+    features = X.columns.tolist()
+    removed_features = []
+
+    def fit_gam(feature_list):
+        if len(feature_list) == 0:
+            raise ValueError("No features left to fit the model.")
+        elif len(feature_list) == 1:
+            terms = s(0)
+        else:
+            terms = reduce(
+                lambda a, b: a + b, [s(i) for i in range(len(feature_list))]
+            )
+
+        gam = LinearGAM(terms).gridsearch(
+            X[feature_list].values, y.values, progress=False
+        )
+        return gam
+
+    def cv_deviance(feature_list):
+        kf = KFold(n_splits=5, shuffle=True, random_state=42)
+        X_vals = X[feature_list].values
+        y_vals = y.values
+        devs = []
+
+        for train_idx, test_idx in kf.split(X_vals):
+            X_train, X_test = X_vals[train_idx], X_vals[test_idx]
+            y_train, y_test = y_vals[train_idx], y_vals[test_idx]
+
+            term_list = [s(i) for i in range(len(feature_list))]
+            terms = term_list[0]
+            for t in term_list[1:]:
+                terms += t
+            model = LinearGAM(terms).gridsearch(
+                X_train, y_train, progress=False
+            )
+            y_pred = model.predict(X_test)
+            devs.append(mean_squared_error(y_test, y_pred))
+
+        return np.mean(devs)
+
+    current_features = features[:]
+    best_score = cv_deviance(current_features)
+
+    while len(current_features) > 1:
+        scores = {}
+        for f in current_features:
+            trial_features = [feat for feat in current_features if feat != f]
+            try:
+                score = cv_deviance(trial_features)
+                scores[f] = score
+            except Exception as e:
+                print(f"Skipping {f} due to error: {e}")
+                continue
+
+        worst_feature, worst_score = min(scores.items(), key=lambda x: x[1])
+        if best_score - worst_score > threshold:
+            print(
+                f"Removing {worst_feature}: improved deviance {best_score:.4f} → {worst_score:.4f}"
+            )
+            current_features.remove(worst_feature)
+            removed_features.append(worst_feature)
+            best_score = worst_score
+        else:
+            break
+
+    # Fit final model
+    final_features = current_features
+    final_model = fit_gam(final_features)
+    X_final = X[final_features]
+    y_pred = final_model.predict(X_final)
+    residuals = y.values - y_pred
+    r2 = r2_score(y, y_pred)
+    adj_r2 = 1 - (1 - r2) * (len(y) - 1) / (len(y) - len(final_features) - 1)
+
+    summary = {
+        "model": final_model,
+        "summary": final_model.summary(),
+        "X_cols": final_features,
+        "y_true": y.copy(),
+        "y_pred": y_pred.copy(),
+        "residuals": residuals.copy(),
+        "r2_score": r2,
+        "adjusted_r2": adj_r2,
+        "n_features": len(final_features),
+        "n_region_dummies": len(
+            [col for col in final_features if "region_" in col]
+        ),
+        "n_sector_dummies": len(
+            [col for col in final_features if "sector_" in col]
+        ),
+        "removed_features": removed_features,
+    }
+
     return summary
