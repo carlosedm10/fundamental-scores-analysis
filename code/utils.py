@@ -2,6 +2,8 @@
 Here we will create different functions to help with the data preparation.
 """
 
+import os
+
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
@@ -308,7 +310,7 @@ def pairplot(
 
     if file_path:
         plt.savefig(file_path)
-        plt.show()
+        plt.close()
     else:
         plt.show()
 
@@ -349,6 +351,7 @@ def model_summary(
     plt.tight_layout()
 
     if export_path:
+        os.makedirs(os.path.dirname(export_path), exist_ok=True)
         plt.savefig(export_path)
         plt.close()
     else:
@@ -370,6 +373,19 @@ def plot_residual_diagnostics(
     - Q-Q Plot
     - Histogram of Residuals
     """
+
+    # Ensure inputs are pandas Series
+    residuals = (
+        pd.Series(residuals)
+        if isinstance(residuals, np.ndarray)
+        else residuals
+    )
+    fitted_values = (
+        pd.Series(fitted_values)
+        if isinstance(fitted_values, np.ndarray)
+        else fitted_values
+    )
+
     fig, axs = plt.subplots(3, 2, figsize=(14, 12))
     fig.suptitle(f"Residual Diagnostics: {title}", fontsize=16)
 
@@ -407,6 +423,7 @@ def plot_residual_diagnostics(
 
     # Save the plot
     if export_path:
+        os.makedirs(os.path.dirname(export_path), exist_ok=True)
         plt.savefig(export_path, dpi=300, bbox_inches="tight")
         plt.close()
     else:
@@ -563,13 +580,15 @@ def simple_backward_gam(X, y, threshold=0.01):
 
     while len(current_features) > 1:
         scores = {}
-        for f in current_features:
-            trial_features = [feat for feat in current_features if feat != f]
+        for feature in current_features:
+            trial_features = [
+                feat for feat in current_features if feat != feature
+            ]
             try:
                 score = cv_deviance(trial_features)
-                scores[f] = score
+                scores[feature] = score
             except Exception as e:
-                print(f"Skipping {f} due to error: {e}")
+                print(f"Skipping {feature} due to error: {e}")
                 continue
 
         worst_feature, worst_score = min(scores.items(), key=lambda x: x[1])
@@ -612,3 +631,93 @@ def simple_backward_gam(X, y, threshold=0.01):
     }
 
     return summary
+
+
+def fast_backward_gam(X, y, threshold=0.01, max_iter=5):
+    features = X.columns.tolist()
+    removed_features = []
+
+    def fit_gam(feature_list, use_gridsearch=True):
+        if len(feature_list) == 0:
+            raise ValueError("No features left to fit the model.")
+        elif len(feature_list) == 1:
+            terms = s(0)
+        else:
+            terms = reduce(
+                lambda a, b: a + b, [s(i) for i in range(len(feature_list))]
+            )
+        gam = LinearGAM(terms)
+        if use_gridsearch:
+            gam.gridsearch(X[feature_list].values, y.values, progress=False)
+        else:
+            gam.fit(X[feature_list].values, y.values)
+        return gam
+
+    def quick_score(feature_list):
+        # Fast deviance estimate: 3-fold CV + no gridsearch
+        kf = KFold(n_splits=3, shuffle=True, random_state=42)
+        X_vals = X[feature_list].values
+        y_vals = y.values
+        devs = []
+
+        for train_idx, test_idx in kf.split(X_vals):
+            X_train, X_test = X_vals[train_idx], X_vals[test_idx]
+            y_train, y_test = y_vals[train_idx], y_vals[test_idx]
+            model = LinearGAM(
+                reduce(
+                    lambda a, b: a + b,
+                    [s(i) for i in range(len(feature_list))],
+                )
+            ).fit(X_train, y_train)
+            y_pred = model.predict(X_test)
+            devs.append(mean_squared_error(y_test, y_pred))
+
+        return np.mean(devs)
+
+    current_features = features[:]
+    best_score = quick_score(current_features)
+    iteration = 0
+
+    while len(current_features) > 1 and iteration < max_iter:
+        scores = {}
+        for feature in current_features:
+            trial_features = [f for f in current_features if f != feature]
+            try:
+                score = quick_score(trial_features)
+                scores[feature] = score
+            except Exception as e:
+                print(f"Skipping {feature} due to error: {e}")
+                continue
+
+        worst_feature, worst_score = min(scores.items(), key=lambda x: x[1])
+        if best_score - worst_score > threshold:
+            print(
+                f"Removing {worst_feature}: improved deviance {best_score:.4f} → {worst_score:.4f}"
+            )
+            current_features.remove(worst_feature)
+            removed_features.append(worst_feature)
+            best_score = worst_score
+            iteration += 1
+        else:
+            break
+
+    # Final GAM with gridsearch for accuracy
+    final_model = fit_gam(current_features, use_gridsearch=True)
+    X_final = X[current_features]
+    y_pred = final_model.predict(X_final)
+    residuals = y.values - y_pred
+    r2 = r2_score(y, y_pred)
+    adj_r2 = 1 - (1 - r2) * (len(y) - 1) / (len(y) - len(current_features) - 1)
+
+    return {
+        "model": final_model,
+        "summary": final_model.summary(),
+        "X_cols": current_features,
+        "y_true": y.copy(),
+        "y_pred": y_pred.copy(),
+        "residuals": residuals.copy(),
+        "r2_score": r2,
+        "adjusted_r2": adj_r2,
+        "n_features": len(current_features),
+        "removed_features": removed_features,
+    }
