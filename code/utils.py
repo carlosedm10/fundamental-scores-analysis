@@ -3,6 +3,7 @@ Here we will create different functions to help with the data preparation.
 """
 
 import os
+import time
 
 from matplotlib import pyplot as plt
 import numpy as np
@@ -171,19 +172,32 @@ def multicretieria_outliers(
     Detect outliers using the Multi-criteria method.
     """
     df_copy = df.copy()
-
+    start_time = time.perf_counter()
     # Transform the data to a Gaussian distribution
     for column in columns:
         df_copy[column] = gaussian_yj_transform(df_copy[column])
+    end_time = time.perf_counter()
+    print(
+        f"Time taken for gaussian_yj_transform: {end_time - start_time} seconds"
+    )
 
+    start_time = time.perf_counter()
     # Detect outliers using the Isolation Forest method
     outliers_iso = if_outliers(df_copy, columns, tolerance)
+    end_time = time.perf_counter()
+    print(f"Time taken for if_outliers: {end_time - start_time} seconds")
 
+    start_time = time.perf_counter()
     # Detect outliers using the SVM method
     outliers_svm = svm_outliers(df_copy, columns, tolerance)
+    end_time = time.perf_counter()
+    print(f"Time taken for svm_outliers: {end_time - start_time} seconds")
 
+    start_time = time.perf_counter()
     # Detect outliers using the Local Outlier Factor method
     outliers_lof = lof_outliers(df_copy, columns, tolerance)
+    end_time = time.perf_counter()
+    print(f"Time taken for lof_outliers: {end_time - start_time} seconds")
 
     # Combine the outliers using the intersection
     true_outliers = outliers_iso & outliers_svm & outliers_lof
@@ -193,15 +207,19 @@ def multicretieria_outliers(
 ############################ PLOTS ############################
 
 
-def plot_numeric_distributions(
-    df: pd.DataFrame, figsize: tuple = (15, 4), file_path: str | None = None
+def histogram(
+    df: pd.DataFrame,
+    figsize: tuple = (15, 4),
+    export_path: str | None = None,
+    numeric_columns: list[str] | None = None,
 ) -> None:
     """
     Plot histograms for all numeric columns in the DataFrame.
     """
-    numeric_columns = df.select_dtypes(
-        include=["float64", "int64", "datetime64"]
-    ).columns
+    if numeric_columns is None:
+        numeric_columns = df.select_dtypes(
+            include=["float64", "int64", "datetime64"]
+        ).columns.tolist()
 
     plt.figure(figsize=(figsize[0], len(numeric_columns) * figsize[1]))
 
@@ -216,8 +234,41 @@ def plot_numeric_distributions(
 
     plt.tight_layout()
 
-    if file_path:
-        plt.savefig(file_path)
+    if export_path:
+        os.makedirs(os.path.dirname(export_path), exist_ok=True)
+        plt.savefig(export_path)
+        plt.show()
+    else:
+        plt.show()
+
+
+def boxplot(
+    df: pd.DataFrame,
+    columns: list[str] | None = None,
+    export_path: str | None = None,
+) -> None:
+    """
+    Plot boxplots for specified columns in the DataFrame.
+    """
+    if columns is None:
+        columns = df.select_dtypes(
+            include=["float64", "int64", "datetime64"]
+        ).columns.tolist()
+
+    plt.figure(figsize=(15, len(columns) * 4))
+
+    for idx, column in enumerate(columns, 1):
+        plt.subplot(len(columns), 1, idx)
+        sns.boxplot(data=df, y=column)
+        plt.title(f"Box Plot - {column}")
+        plt.ylabel(column)
+        plt.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    if export_path:
+        os.makedirs(os.path.dirname(export_path), exist_ok=True)
+        plt.savefig(export_path)
         plt.show()
     else:
         plt.show()
@@ -227,7 +278,7 @@ def dummy_bar_plot(
     df: pd.DataFrame,
     columns: list[str],
     figsize: tuple = (15, 4),
-    file_path: str | None = None,
+    export_path: str | None = None,
 ) -> None:
     """
     Plot bar plots for specified columns in the DataFrame.
@@ -245,8 +296,9 @@ def dummy_bar_plot(
 
     plt.tight_layout()
 
-    if file_path:
-        plt.savefig(file_path)
+    if export_path:
+        os.makedirs(os.path.dirname(export_path), exist_ok=True)
+        plt.savefig(export_path)
         plt.show()
     else:
         plt.show()

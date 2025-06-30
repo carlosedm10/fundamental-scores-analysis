@@ -27,11 +27,8 @@ from collections import Counter
 # #
 # ### First we start with basic cleaned data (with outliers)
 
-
-#
-
-
-file_name = "Small Data future USA - Multi"
+region = "AF"
+file_name = f"Small Data future {region} - Multi"
 data_path = f"./code/data/cleaned/multiple_analysis/outliers/{file_name}.csv"
 
 # Read the CSV file
@@ -52,7 +49,7 @@ dummies = [col for col in df.columns if col.startswith(("sector_", "region_"))]
 # Drop the reference dummy variables (i.e., base categories)
 reference_dummies = [
     "sector_Information Technology",
-    "region_United States and Canada",
+    # "region_Europe",
 ]
 df.drop(columns=reference_dummies, inplace=True)
 
@@ -134,13 +131,13 @@ print("\n===== Most Frequently Removed Features =====")
 print(removed_df.head(10))
 
 
-export_path = "code/single_analysis/third_model/USA/GAM_models_summary.png"
+export_path = "code/single_analysis/third_model/LAT/GAM_models_summary.png"
 model_summary(summary_df, profits, export_path)
 
 
 # === Loop through all models and plot residual diagnostics ===
 for summary in gam_model_summaries:
-    export_path = f"code/single_analysis/third_model/USA/{summary['score_type']}_{summary['profit']}_residuals.png"
+    export_path = f"code/single_analysis/third_model/LAT/{summary['score_type']}_{summary['profit']}_residuals.png"
 
     plot_residual_diagnostics(
         summary["residuals"],
