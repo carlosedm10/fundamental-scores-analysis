@@ -210,6 +210,7 @@ def multicretieria_outliers(
 def histogram(
     df: pd.DataFrame,
     figsize: tuple = (15, 4),
+    center: int | None = None,
     export_path: str | None = None,
     numeric_columns: list[str] | None = None,
 ) -> None:
@@ -224,8 +225,13 @@ def histogram(
     plt.figure(figsize=(figsize[0], len(numeric_columns) * figsize[1]))
 
     for idx, column in enumerate(numeric_columns, 1):
+        data = df[column]
         plt.subplot(len(numeric_columns), 1, idx)
-        plt.hist(df[column], bins=100, edgecolor="black")
+        plt.hist(data, bins=100, edgecolor="black")
+        # Centering logic
+        if center is not None:
+            max_dev = max(abs(data.min() - center), abs(data.max() - center))
+            plt.xlim(center - max_dev, center + max_dev)
 
         plt.title(f"Distribution of {column}")
         plt.xlabel(column)
@@ -244,6 +250,7 @@ def histogram(
 
 def boxplot(
     df: pd.DataFrame,
+    figsize: tuple = (15, 4),
     columns: list[str] | None = None,
     export_path: str | None = None,
 ) -> None:
@@ -255,7 +262,7 @@ def boxplot(
             include=["float64", "int64", "datetime64"]
         ).columns.tolist()
 
-    plt.figure(figsize=(15, len(columns) * 4))
+    plt.figure(figsize=(figsize[0], len(columns) * figsize[1]))
 
     for idx, column in enumerate(columns, 1):
         plt.subplot(len(columns), 1, idx)
@@ -331,6 +338,7 @@ def correlation_matrix(
     plt.tight_layout()
 
     if file_path:
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
         plt.savefig(file_path)
         plt.show()
     else:
@@ -361,8 +369,9 @@ def pairplot(
         g.map_lower(sns.kdeplot, levels=4, color=".2")
 
     if file_path:
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
         plt.savefig(file_path)
-        plt.close()
+        plt.show()
     else:
         plt.show()
 
