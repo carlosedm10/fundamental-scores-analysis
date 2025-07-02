@@ -119,15 +119,20 @@ def iqr_outliers_removal(
 
 
 def if_outliers(
-    df: pd.DataFrame, columns: list[str], tolerance: float = 0.05
+    df: pd.DataFrame, columns: list[str], tolerance: float | None = 0.05
 ) -> np.ndarray:
     """
     Detect outliers using the Isolation Forest method.
     Note that the columns have to be scaled before using this function.
     """
     Y = df[columns]
+    if tolerance is None:
+        contamination = "auto"
+    else:
+        contamination = tolerance
+
     iso_forest = IsolationForest(
-        n_estimators=200, contamination=tolerance, random_state=42
+        n_estimators=200, contamination=contamination, random_state=42
     )
     iso_forest.fit(Y)
 
@@ -136,15 +141,20 @@ def if_outliers(
 
 
 def svm_outliers(
-    df: pd.DataFrame, columns: list[str], tolerance: float = 0.05
+    df: pd.DataFrame, columns: list[str], tolerance: float | None = 0.05
 ) -> np.ndarray:
     """
     Detect outliers using the SVM method.
     Note that the columns have to be scaled before using this function.
     """
+    if tolerance is None:
+        nu = 0.5
+    else:
+        nu = tolerance
+
     Y = df[columns]
     # Initialize and fit model
-    svm = OneClassSVM(nu=0.05)
+    svm = OneClassSVM(nu=nu)
     svm.fit(Y)
 
     outliers_ocsvm = svm.predict(Y)
@@ -152,21 +162,26 @@ def svm_outliers(
 
 
 def lof_outliers(
-    df: pd.DataFrame, columns: list[str], tolerance: float = 0.05
+    df: pd.DataFrame, columns: list[str], tolerance: float | None = 0.05
 ) -> np.ndarray:
     """
     Detect outliers using the Local Outlier Factor method.
     Note that the columns have to be scaled before using this function.
     """
+    if tolerance is None:
+        contamination = "auto"
+    else:
+        contamination = tolerance
+
     Y = df[columns]
-    lof = LocalOutlierFactor(n_neighbors=20, contamination=tolerance)
+    lof = LocalOutlierFactor(n_neighbors=20, contamination=contamination)
 
     outliers_lof = lof.fit_predict(Y)
     return outliers_lof
 
 
 def multicretieria_outliers(
-    df: pd.DataFrame, columns: list[str], tolerance: float = 0.05
+    df: pd.DataFrame, columns: list[str], tolerance: float | None = 0.05
 ) -> np.ndarray:
     """
     Detect outliers using the Multi-criteria method.
@@ -376,47 +391,199 @@ def pairplot(
         plt.show()
 
 
-def model_summary(
-    summary_df: pd.DataFrame, order: list[str], export_path: str | None = None
+def model_performance_summary(
+    summary_df: pd.DataFrame,
+    order: list[str],
+    export_path: str | None = None,
 ):
     """
-    Plot a heatmap and a barplot of the model summary.
+    Extended performance summary for regression models.
+    Generates:
+    - Heatmaps for R², R² adjusted, RMSE, MAE
+    - Barplot of number of final variables per score and profit
     """
-    # Create pivot table and reorder columns
-    heatmap_data = summary_df.pivot(
+
+    # Set up figure with 2 rows: 4 heatmaps + 1 barplot
+    fig = plt.figure(figsize=(20, 14))
+    gs = fig.add_gridspec(3, 2)
+    ax_r2 = fig.add_subplot(gs[0, 0])
+    ax_r2_adj = fig.add_subplot(gs[0, 1])
+    ax_mae = fig.add_subplot(gs[1, 0])
+    ax_rmse = fig.add_subplot(gs[1, 1])
+    ax_bar = fig.add_subplot(gs[2, :])
+
+    # R² heatmap
+    heatmap_r2 = summary_df.pivot(
         index="score_type", columns="profit", values="r2_score"
     ).reindex(columns=order)
+    sns.heatmap(heatmap_r2, annot=True, cmap="viridis", fmt=".2f", ax=ax_r2)
+    ax_r2.set_title("R²")
+    ax_r2.set_xlabel("Profit Horizon")
+    ax_r2.set_ylabel("Score Type")
 
-    # Create figure with two subplots side by side
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5))
+    # R² adjusted heatmap
+    heatmap_r2_adj = summary_df.pivot(
+        index="score_type", columns="profit", values="adjusted_r2"
+    ).reindex(columns=order)
+    sns.heatmap(
+        heatmap_r2_adj, annot=True, cmap="crest_r", fmt=".2f", ax=ax_r2_adj
+    )
+    ax_r2_adj.set_title("Adjusted R²")
+    ax_r2_adj.set_xlabel("Profit Horizon")
+    ax_r2_adj.set_ylabel("Score Type")
 
-    # Plot heatmap on first subplot
-    sns.heatmap(heatmap_data, annot=True, cmap="viridis", fmt=".2f", ax=ax1)
-    ax1.set_title("Models R²")
-    ax1.set_xlabel("Profit Horizon")
-    ax1.set_ylabel("Score Type")
+    # MAE heatmap
+    heatmap_mae = summary_df.pivot(
+        index="score_type", columns="profit", values="mae"
+    ).reindex(columns=order)
+    sns.heatmap(heatmap_mae, annot=True, cmap="magma_r", fmt=".2f", ax=ax_mae)
+    ax_mae.set_title("MAE (Mean Absolute Error)")
+    ax_mae.set_xlabel("Profit Horizon")
+    ax_mae.set_ylabel("Score Type")
 
-    # Plot barplot on second subplot
+    # RMSE heatmap
+    heatmap_rmse = summary_df.pivot(
+        index="score_type", columns="profit", values="rmse"
+    ).reindex(columns=order)
+    sns.heatmap(
+        heatmap_rmse, annot=True, cmap="rocket_r", fmt=".2f", ax=ax_rmse
+    )
+    ax_rmse.set_title("RMSE (Root Mean Squared Error)")
+    ax_rmse.set_xlabel("Profit Horizon")
+    ax_rmse.set_ylabel("Score Type")
+
+    # Barplot of number of final variables
     sns.barplot(
         data=summary_df,
         x="profit",
         y="n_features",
         hue="score_type",
         order=order,
-        ax=ax2,
+        ax=ax_bar,
     )
-    ax2.set_title("Number of Variables in Final Models")
-    ax2.set_ylabel("Feature Count")
-    ax2.set_xlabel("Profit Horizon")
+    ax_bar.set_title("Number of Variables in Final Models")
+    ax_bar.set_ylabel("Feature Count")
+    ax_bar.set_xlabel("Profit Horizon")
 
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+    fig.suptitle("Model Performance Summary", fontsize=18)
 
     if export_path:
         os.makedirs(os.path.dirname(export_path), exist_ok=True)
-        plt.savefig(export_path)
-        plt.close()
+        plt.savefig(export_path, dpi=300, bbox_inches="tight")
+        plt.show()
     else:
         plt.show()
+
+
+def models_scores_summary(summary_df, export_path=None):
+    """
+    For each score_type, create a transposed table showing coefficient, sign, and t-value
+    of the main score variable (e.g., 'quality') across profit horizons.
+
+    Returns a dict of transposed DataFrames keyed by score_type.
+    """
+    results = {}
+    score_types = summary_df["score_type"].unique()
+
+    for score in score_types:
+        subset = summary_df[summary_df["score_type"] == score]
+        profits = sorted(subset["profit"].unique())
+
+        rows = []
+        for profit in profits:
+            model_row = subset[subset["profit"] == profit].iloc[0]
+            coefs = model_row["coefficients"]
+            tvals = model_row["tvalues"]
+
+            coef = coefs.get(score, np.nan)  # main variable only
+            tval = tvals.get(score, np.nan)
+            sign = "+" if coef > 0 else "–" if coef < 0 else "0"
+
+            rows.append(
+                {
+                    "profit_horizon": profit,
+                    "coefficient": coef,
+                    "sign": sign,
+                    "t_value": tval,
+                }
+            )
+
+        df = pd.DataFrame(rows).set_index("profit_horizon")
+        df_t = df.transpose()  # transpose here
+
+        results[score] = df_t
+
+        if export_path:
+            os.makedirs(export_path, exist_ok=True)
+            df_t.to_csv(
+                f"{export_path}/{score}_main_score_summary_transposed.csv"
+            )
+
+    return results
+
+
+def model_consistency_and_overfitting(
+    summary_df: pd.DataFrame,
+    p_threshold: float = 0.2,
+    export_folder: str | None = None,
+):
+    """
+    Generate coefficient consistency tables for each score_type.
+    Each table compares coefficient values, signs, and significance
+    across different profit horizons.
+    """
+
+    score_types = summary_df["score_type"].unique()
+    profit_horizons = summary_df["profit"].unique()
+
+    for score in score_types:
+        subset = summary_df[summary_df["score_type"] == score]
+
+        # Get all features ever used in any model of this score
+        all_features = set()
+        for row in subset["coefficients"]:
+            all_features.update(row.keys())
+
+        all_features = sorted(
+            f for f in all_features if f != "const"
+        )  # exclude intercept
+
+        # Create tables for coefficients, signs, significance
+        coef_table = pd.DataFrame(index=all_features)
+        sign_table = pd.DataFrame(index=all_features)
+        signif_table = pd.DataFrame(index=all_features)
+
+        for _, row in subset.iterrows():
+            profit = row["profit"]
+            coefs = row["coefficients"]
+            pvals = row["pvalues"]
+
+            # Fill values per feature
+            for feature in all_features:
+                coef = coefs.get(feature, np.nan)
+                pval = pvals.get(feature, np.nan)
+
+                coef_table.loc[feature, profit] = coef
+                sign_table.loc[feature, profit] = (
+                    np.sign(coef) if not np.isnan(coef) else 0
+                )
+                signif_table.loc[feature, profit] = (
+                    pval < p_threshold if not np.isnan(pval) else False
+                )
+
+        # Export or return
+        if export_folder:
+            os.makedirs(export_folder, exist_ok=True)
+            coef_table.to_csv(f"{export_folder}/{score}_coefficients.csv")
+            sign_table.to_csv(f"{export_folder}/{score}_signs.csv")
+            signif_table.to_csv(f"{export_folder}/{score}_significance.csv")
+
+        else:
+            print(f"\nScore: {score}")
+            print(coef_table.round(4))
+            print(sign_table.astype(int))
+            print(signif_table.astype(bool))
 
 
 def plot_residual_diagnostics(
@@ -498,7 +665,8 @@ def simple_backward_regression(
     X: pd.DataFrame, y: pd.Series, threshold: float = 0.20
 ) -> dict:
     """
-    Perform simple backward elimination regression.
+    Perform simple backward elimination regression with a threshold of 20%
+    for the p-values.
     """
 
     # Add intercept
@@ -523,14 +691,24 @@ def simple_backward_regression(
     final_features = X.columns.tolist()
     final_model = sm.OLS(y, X).fit()
     summary = {
+        # Model Information:
         "model": final_model,
         "summary": final_model.summary(),
         "X_cols": final_features,
+        "removed_features": removed_features,
         "y_true": y.copy(),
         "y_pred": final_model.fittedvalues.copy(),
         "residuals": final_model.resid.copy(),
+        # Performance metrics:
         "r2_score": final_model.rsquared,
         "adjusted_r2": final_model.rsquared_adj,
+        "rmse": np.sqrt(mean_squared_error(y, final_model.fittedvalues)),
+        "mae": np.mean(np.abs(y - final_model.fittedvalues)),
+        # Consistency and overfitting metrics:
+        "coefficients": final_model.params.to_dict(),
+        "pvalues": final_model.pvalues.to_dict(),
+        "stderr": final_model.bse.to_dict(),
+        "signs": final_model.params.apply(np.sign).to_dict(),
         "n_features": len(final_features),
         "n_region_dummies": len(
             [col for col in final_features if "region_" in col]
@@ -538,7 +716,8 @@ def simple_backward_regression(
         "n_sector_dummies": len(
             [col for col in final_features if "sector_" in col]
         ),
-        "removed_features": removed_features,
+        "tvalues": final_model.tvalues.to_dict(),
+        # "nobs": int(final_model.nobs),
     }
     return summary
 
