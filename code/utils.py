@@ -187,14 +187,14 @@ def multicretieria_outliers(
     Detect outliers using the Multi-criteria method.
     """
     df_copy = df.copy()
-    start_time = time.perf_counter()
-    # Transform the data to a Gaussian distribution
-    for column in columns:
-        df_copy[column] = gaussian_yj_transform(df_copy[column])
-    end_time = time.perf_counter()
-    print(
-        f"Time taken for gaussian_yj_transform: {end_time - start_time} seconds"
-    )
+    # start_time = time.perf_counter()
+    # # Transform the data to a Gaussian distribution
+    # for column in columns:
+    #     df_copy[column] = gaussian_yj_transform(df_copy[column])
+    # end_time = time.perf_counter()
+    # print(
+    #     f"Time taken for gaussian_yj_transform: {end_time - start_time} seconds"
+    # )
 
     start_time = time.perf_counter()
     # Detect outliers using the Isolation Forest method
@@ -204,19 +204,45 @@ def multicretieria_outliers(
 
     start_time = time.perf_counter()
     # Detect outliers using the SVM method
-    outliers_svm = svm_outliers(df_copy, columns, tolerance)
+    outliers_svm = svm_outliers(
+        df_copy, columns, tolerance * 1.7 if tolerance else None
+    )
     end_time = time.perf_counter()
     print(f"Time taken for svm_outliers: {end_time - start_time} seconds")
 
     start_time = time.perf_counter()
     # Detect outliers using the Local Outlier Factor method
-    outliers_lof = lof_outliers(df_copy, columns, tolerance)
+    outliers_lof = lof_outliers(
+        df_copy, columns, tolerance * 1.5 if tolerance else None
+    )
     end_time = time.perf_counter()
     print(f"Time taken for lof_outliers: {end_time - start_time} seconds")
 
     # Combine the outliers using the intersection
     true_outliers = outliers_iso & outliers_svm & outliers_lof
     return true_outliers
+
+
+def outliers_comparison(df: pd.DataFrame):
+    outlier_counts_by_region = df.groupby("region")["outlier"].sum()
+    # Count only the number of normal (non-outlier) data points per region
+    total_counts_by_region = (
+        df.groupby("region")["outlier"].apply(lambda x: (~x).sum())
+        + outlier_counts_by_region
+    )
+    outlier_comparison = pd.DataFrame(
+        {
+            "total_datapoints": total_counts_by_region,
+            "num_outliers": outlier_counts_by_region,
+            "outlier_percentage": (
+                (
+                    outlier_counts_by_region / total_counts_by_region * 100
+                ).round(2)
+            ),
+        }
+    )
+    print("Outlier comparison per region:")
+    print(outlier_comparison)
 
 
 ############################ PLOTS ############################
