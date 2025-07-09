@@ -181,20 +181,23 @@ def lof_outliers(
 
 
 def multicretieria_outliers(
-    df: pd.DataFrame, columns: list[str], tolerance: float | None = 0.05
+    df: pd.DataFrame,
+    columns: list[str],
+    tolerance: float | None = 0.05,
+    training: bool = True,
 ) -> np.ndarray:
     """
     Detect outliers using the Multi-criteria method.
     """
     df_copy = df.copy()
-    # start_time = time.perf_counter()
-    # # Transform the data to a Gaussian distribution
-    # for column in columns:
-    #     df_copy[column] = gaussian_yj_transform(df_copy[column])
-    # end_time = time.perf_counter()
-    # print(
-    #     f"Time taken for gaussian_yj_transform: {end_time - start_time} seconds"
-    # )
+    start_time = time.perf_counter()
+    # Transform the data to a Gaussian distribution
+    for column in columns:
+        df_copy[column] = gaussian_yj_transform(df_copy[column])
+    end_time = time.perf_counter()
+    print(
+        f"Time taken for gaussian_yj_transform: {end_time - start_time} seconds"
+    )
 
     start_time = time.perf_counter()
     # Detect outliers using the Isolation Forest method
@@ -205,21 +208,29 @@ def multicretieria_outliers(
     start_time = time.perf_counter()
     # Detect outliers using the SVM method
     outliers_svm = svm_outliers(
-        df_copy, columns, tolerance * 1.7 if tolerance else None
+        df_copy, columns, tolerance * 1.5 if tolerance else None
     )
     end_time = time.perf_counter()
     print(f"Time taken for svm_outliers: {end_time - start_time} seconds")
 
-    start_time = time.perf_counter()
-    # Detect outliers using the Local Outlier Factor method
-    outliers_lof = lof_outliers(
-        df_copy, columns, tolerance * 1.5 if tolerance else None
-    )
-    end_time = time.perf_counter()
-    print(f"Time taken for lof_outliers: {end_time - start_time} seconds")
-
-    # Combine the outliers using the intersection
-    true_outliers = outliers_iso & outliers_svm & outliers_lof
+    if training is False:
+        start_time = time.perf_counter()
+        # Detect outliers using the Local Outlier Factor method
+        outliers_lof = lof_outliers(
+            df_copy,
+            columns,
+            (
+                (tolerance * 3 if tolerance * 3 < 0.5 else 0.5)
+                if tolerance is not None
+                else None
+            ),
+        )
+        end_time = time.perf_counter()
+        print(f"Time taken for lof_outliers: {end_time - start_time} seconds")
+        # Combine the outliers using the intersection
+        true_outliers = outliers_iso & outliers_svm & outliers_lof
+    else:
+        true_outliers = outliers_iso & outliers_svm
     return true_outliers
 
 
