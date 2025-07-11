@@ -4,6 +4,7 @@ Here we will create different functions to help with the data preparation.
 
 import os
 import time
+from typing import Literal
 
 from matplotlib import pyplot as plt
 import numpy as np
@@ -11,13 +12,28 @@ import pandas as pd
 import seaborn as sns
 import statsmodels.api as sm
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from sklearn.preprocessing import PowerTransformer
-from sklearn.preprocessing import StandardScaler
+from scipy import stats
+from statsmodels.stats.stattools import durbin_watson, jarque_bera
+from statsmodels.stats.diagnostic import het_breuschpagan, het_white
+
+from sklearn.preprocessing import PowerTransformer, StandardScaler
 from sklearn.ensemble import IsolationForest
 from sklearn.svm import OneClassSVM
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.model_selection import KFold
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.model_selection import train_test_split
+from sklearn.neural_network import MLPRegressor, MLPClassifier
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    confusion_matrix,
+    classification_report,
+)
+import shap
+
 from pygam import LinearGAM, s
 from functools import reduce
 
@@ -513,6 +529,78 @@ def model_performance_summary(
         plt.show()
 
 
+def nn_shap_plot(
+    summary: dict,
+    title: str,
+    sample_size: int = 100,
+    plot_type: Literal["bar", "dot"] = "bar",
+    max_features: int = 10,
+    export_path: str | None = None,
+):
+    """
+    Generate SHAP summary plot for a model stored in the regression summary.
+
+    Args:
+        summary: Dictionary output from simple_neural_network_regression
+        sample_size: Number of validation samples to use for SHAP
+        plot_type: Type of SHAP plot ("bar" or "dot")
+        max_features: Maximum number of features to display (default: 10)
+        title: Custom title for the plot. If None, auto-generates based on model info
+        export_path: Path to save the plot
+
+    Returns:
+        Tuple of (explainer, shap_values, X_val_sampled)
+    """
+    model = summary["model"]
+    scaler = summary["scaler"]
+    X_cols = summary["X_cols"]
+
+    # Prepare validation data
+    X_val = summary["X_val"]
+    X_val_scaled = scaler.transform(X_val)
+
+    # Subsample to reduce SHAP computation cost
+    if sample_size < X_val_scaled.shape[0]:
+        idx = np.random.choice(
+            X_val_scaled.shape[0], sample_size, replace=False
+        )
+        X_val_sampled = X_val_scaled[idx]
+        X_val_sampled_raw = X_val.iloc[idx]
+    else:
+        X_val_sampled = X_val_scaled
+        X_val_sampled_raw = X_val
+
+    # Define model prediction function for SHAP
+    def predict_fn(x):
+        return model.predict(x)
+
+    # Use KernelExplainer for MLPRegressor
+    explainer = shap.KernelExplainer(predict_fn, X_val_sampled)
+    shap_values = explainer.shap_values(X_val_sampled)
+
+    # Plot
+    shap.summary_plot(
+        shap_values,
+        X_val_sampled_raw,
+        feature_names=X_cols,
+        plot_type=plot_type,
+        max_display=max_features,
+        show=False,
+    )
+
+    # Add title to the plot
+    plt.title(title, fontsize=14, pad=20)
+
+    if export_path:
+        os.makedirs(os.path.dirname(export_path), exist_ok=True)
+        plt.savefig(export_path)
+        plt.show()
+    else:
+        plt.show()
+
+    return explainer, shap_values, X_val_sampled_raw
+
+
 def models_scores_summary(summary_df, export_path=None):
     """
     For each score_type, create a transposed table showing coefficient, sign, and t-value
@@ -558,6 +646,168 @@ def models_scores_summary(summary_df, export_path=None):
             )
 
     return results
+
+
+def model_performance_summary_2(
+    summary_df: pd.DataFrame,
+    order: list[str],
+    export_path: str | None = None,
+):
+    """
+    Extended performance summary for regression models.
+    Displays:
+    - Train & Val R², Adj R², MAE, RMSE heatmaps
+    - Barplot of number of variables
+    """
+    fig = plt.figure(figsize=(24, 24))
+    gs = fig.add_gridspec(5, 2)
+
+    # Axes for train
+    ax_r2_train = fig.add_subplot(gs[0, 0])
+    ax_r2_adj_train = fig.add_subplot(gs[1, 0])
+    ax_mae_train = fig.add_subplot(gs[2, 0])
+    ax_rmse_train = fig.add_subplot(gs[3, 0])
+
+    # Axes for val
+    ax_r2_val = fig.add_subplot(gs[0, 1])
+    ax_r2_adj_val = fig.add_subplot(gs[1, 1])
+    ax_mae_val = fig.add_subplot(gs[2, 1])
+    ax_rmse_val = fig.add_subplot(gs[3, 1])
+
+    # Barplot of features
+    ax_bar = fig.add_subplot(gs[4, :])
+
+    # Train R²
+    heatmap_train_r2 = summary_df.pivot(
+        index="score_type", columns="profit", values="train_r2_score"
+    ).reindex(columns=order)
+    sns.heatmap(
+        heatmap_train_r2, annot=True, cmap="Blues", fmt=".2f", ax=ax_r2_train
+    )
+    ax_r2_train.set_title("Train R²")
+    ax_r2_train.set_xlabel("Profit Horizon")
+    ax_r2_train.set_ylabel("Score Type")
+
+    # Val R²
+    heatmap_val_r2 = summary_df.pivot(
+        index="score_type", columns="profit", values="val_r2_score"
+    ).reindex(columns=order)
+    sns.heatmap(
+        heatmap_val_r2, annot=True, cmap="Blues", fmt=".2f", ax=ax_r2_val
+    )
+    ax_r2_val.set_title("Validation R²")
+    ax_r2_val.set_xlabel("Profit Horizon")
+    ax_r2_val.set_ylabel("Score Type")
+
+    # Train Adjusted R²
+    heatmap_train_r2_adj = summary_df.pivot(
+        index="score_type", columns="profit", values="train_adjusted_r2"
+    ).reindex(columns=order)
+    sns.heatmap(
+        heatmap_train_r2_adj,
+        annot=True,
+        cmap="crest",
+        fmt=".2f",
+        ax=ax_r2_adj_train,
+    )
+    ax_r2_adj_train.set_title("Train Adjusted R²")
+    ax_r2_adj_train.set_xlabel("Profit Horizon")
+    ax_r2_adj_train.set_ylabel("Score Type")
+
+    # Val Adjusted R²
+    heatmap_val_r2_adj = summary_df.pivot(
+        index="score_type", columns="profit", values="val_adjusted_r2"
+    ).reindex(columns=order)
+    sns.heatmap(
+        heatmap_val_r2_adj,
+        annot=True,
+        cmap="crest",
+        fmt=".2f",
+        ax=ax_r2_adj_val,
+    )
+    ax_r2_adj_val.set_title("Validation Adjusted R²")
+    ax_r2_adj_val.set_xlabel("Profit Horizon")
+    ax_r2_adj_val.set_ylabel("Score Type")
+
+    # Train MAE
+    heatmap_train_mae = summary_df.pivot(
+        index="score_type", columns="profit", values="train_mae"
+    ).reindex(columns=order)
+    sns.heatmap(
+        heatmap_train_mae,
+        annot=True,
+        cmap="magma_r",
+        fmt=".2f",
+        ax=ax_mae_train,
+    )
+    ax_mae_train.set_title("Train MAE")
+    ax_mae_train.set_xlabel("Profit Horizon")
+    ax_mae_train.set_ylabel("Score Type")
+
+    # Val MAE
+    heatmap_val_mae = summary_df.pivot(
+        index="score_type", columns="profit", values="val_mae"
+    ).reindex(columns=order)
+    sns.heatmap(
+        heatmap_val_mae, annot=True, cmap="magma_r", fmt=".2f", ax=ax_mae_val
+    )
+    ax_mae_val.set_title("Validation MAE")
+    ax_mae_val.set_xlabel("Profit Horizon")
+    ax_mae_val.set_ylabel("Score Type")
+
+    # Train RMSE
+    heatmap_train_rmse = summary_df.pivot(
+        index="score_type", columns="profit", values="train_rmse"
+    ).reindex(columns=order)
+    sns.heatmap(
+        heatmap_train_rmse,
+        annot=True,
+        cmap="rocket_r",
+        fmt=".2f",
+        ax=ax_rmse_train,
+    )
+    ax_rmse_train.set_title("Train RMSE")
+    ax_rmse_train.set_xlabel("Profit Horizon")
+    ax_rmse_train.set_ylabel("Score Type")
+
+    # Val RMSE
+    heatmap_val_rmse = summary_df.pivot(
+        index="score_type", columns="profit", values="val_rmse"
+    ).reindex(columns=order)
+    sns.heatmap(
+        heatmap_val_rmse,
+        annot=True,
+        cmap="rocket_r",
+        fmt=".2f",
+        ax=ax_rmse_val,
+    )
+    ax_rmse_val.set_title("Validation RMSE")
+    ax_rmse_val.set_xlabel("Profit Horizon")
+    ax_rmse_val.set_ylabel("Score Type")
+
+    # Barplot of number of variables
+    sns.barplot(
+        data=summary_df,
+        x="profit",
+        y="n_features",
+        hue="score_type",
+        order=order,
+        ax=ax_bar,
+    )
+    ax_bar.set_title("Number of Variables in Final Models")
+    ax_bar.set_ylabel("Feature Count")
+    ax_bar.set_xlabel("Profit Horizon")
+
+    # Layout
+    plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+    fig.suptitle("Train vs Validation Model Performance", fontsize=22)
+
+    if export_path:
+        os.makedirs(os.path.dirname(export_path), exist_ok=True)
+        plt.savefig(export_path, dpi=300, bbox_inches="tight")
+        plt.show()
+    else:
+        plt.show()
 
 
 def model_consistency_and_overfitting(
@@ -695,6 +945,214 @@ def plot_residual_diagnostics(
         plt.show()
 
 
+def plot_residual_diagnostics_2(
+    train_residuals: pd.Series,
+    train_fitted: pd.Series,
+    val_residuals: pd.Series,
+    val_fitted: pd.Series,
+    title: str = "",
+    export_path: str | None = None,
+):
+    """
+    Plot residual diagnostics for both training and validation sets:
+    - Residuals vs Time
+    - Residuals vs Fitted
+    - Histogram
+    - Q-Q Plot
+    - ACF
+    - PACF
+    """
+    # Ensure Series type
+    train_residuals = pd.Series(train_residuals)
+    train_fitted = pd.Series(train_fitted)
+    val_residuals = pd.Series(val_residuals)
+    val_fitted = pd.Series(val_fitted)
+
+    fig, axs = plt.subplots(3, 4, figsize=(20, 14))
+    fig.suptitle(f"Residual Diagnostics: {title}", fontsize=18)
+
+    # === TRAIN PLOTS (blue) ===
+    axs[0, 0].plot(train_residuals.values, color="blue")
+    axs[0, 0].set_title("Train: Residuals vs. Time")
+    axs[0, 0].set_xlabel("Index")
+    axs[0, 0].set_ylabel("Residuals")
+
+    axs[0, 1].scatter(train_fitted, train_residuals, alpha=0.6, color="blue")
+    axs[0, 1].set_title("Train: Residuals vs. Fitted")
+    axs[0, 1].set_xlabel("Fitted")
+    axs[0, 1].set_ylabel("Residuals")
+
+    sm.qqplot(train_residuals, line="s", ax=axs[0, 2], color="blue")
+    axs[0, 2].set_title("Train: Q-Q Plot")
+
+    axs[0, 3].hist(train_residuals, bins=50, edgecolor="black", color="blue")
+    axs[0, 3].set_title("Train: Histogram")
+    axs[0, 3].set_xlabel("Residuals")
+
+    # === VALIDATION PLOTS (orange) ===
+    axs[1, 0].plot(val_residuals.values, color="orange")
+    axs[1, 0].set_title("Val: Residuals vs. Time")
+    axs[1, 0].set_xlabel("Index")
+    axs[1, 0].set_ylabel("Residuals")
+
+    axs[1, 1].scatter(val_fitted, val_residuals, alpha=0.6, color="orange")
+    axs[1, 1].set_title("Val: Residuals vs. Fitted")
+    axs[1, 1].set_xlabel("Fitted")
+    axs[1, 1].set_ylabel("Residuals")
+
+    sm.qqplot(val_residuals, line="s", ax=axs[1, 2], color="orange")
+    axs[1, 2].set_title("Val: Q-Q Plot")
+
+    axs[1, 3].hist(val_residuals, bins=50, edgecolor="black", color="orange")
+    axs[1, 3].set_title("Val: Histogram")
+    axs[1, 3].set_xlabel("Residuals")
+
+    # === ACF and PACF ===
+    plot_acf(train_residuals, ax=axs[2, 0], lags=12, zero=False)
+    for line in axs[2, 0].get_lines():
+        line.set_color("blue")
+    axs[2, 0].set_title("Train: ACF")
+
+    plot_pacf(train_residuals, ax=axs[2, 1], lags=12, zero=False)
+    for line in axs[2, 1].get_lines():
+        line.set_color("blue")
+    axs[2, 1].set_title("Train: PACF")
+
+    plot_acf(val_residuals, ax=axs[2, 2], lags=12, zero=False)
+    for line in axs[2, 2].get_lines():
+        line.set_color("orange")
+    axs[2, 2].set_title("Val: ACF")
+
+    plot_pacf(val_residuals, ax=axs[2, 3], lags=12, zero=False)
+    for line in axs[2, 3].get_lines():
+        line.set_color("orange")
+    axs[2, 3].set_title("Val: PACF")
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    if export_path:
+        os.makedirs(os.path.dirname(export_path), exist_ok=True)
+        plt.savefig(export_path, dpi=300, bbox_inches="tight")
+        plt.close()
+    else:
+        plt.show()
+
+
+def check_white_noise(residuals, exog, alpha=0.2):
+    """
+    Check if the residuals are white noise using the following tests:
+    - Mean Value Test
+    - Heteroscedasticity Tests
+        - White Test
+        - Breusch-Pagan Test
+        - F and t tests
+    - Normality Tests
+        - Shapiro-Wilk Test
+        - Jarque-Bera Test
+    - Autocorrelation Test (Durbin-Watson Test)
+
+    Args:
+    residuals (pd.Series): Residuals of the model.
+    alpha (float, optional): Significance level. Defaults to 0.05.
+
+    Returns:
+    dict: Dictionary with the results of the tests.
+    """
+
+    def _format_diagnostics(diagnostics):
+        print("\nDiagnostic Test Results:")
+        print("-" * 50)
+        for key, value in diagnostics.items():
+            print(f"{key.ljust(10)}: {value}")
+
+    # Defining the model:
+    squared_residuals = residuals**2
+    y = exog
+    t = np.arange(1, len(y) + 1)
+    diagnostics = {}
+
+    all_tests_passed = True
+
+    # 1. Mean Value Test
+    _, p_value_mean = stats.ttest_1samp(residuals, 0)
+    diagnostics["Mean Test p-value"] = p_value_mean
+    diagnostics["Mean Test"] = "Pass" if p_value_mean > alpha else "Fail"  # type: ignore
+    if p_value_mean <= alpha:  # type: ignore
+        all_tests_passed = False
+
+    # 2. Heteroscedasticity Tests
+    # White Test
+    _, p_value_white, _, _ = het_white(squared_residuals, sm.add_constant(y))
+    diagnostics["White Test p-value"] = p_value_white
+    diagnostics["White Test"] = "Pass" if p_value_white > alpha else "Fail"
+    if p_value_white <= alpha:
+        all_tests_passed = False
+
+    # Breusch-Pagan Test
+    _, _, _, p_value_breusch_pagan = het_breuschpagan(
+        residuals, sm.add_constant(y)
+    )
+    diagnostics["Breusch-Pagan Test p-value"] = p_value_breusch_pagan
+    diagnostics["Breusch-Pagan Test"] = (
+        "Pass" if p_value_breusch_pagan > alpha else "Fail"
+    )
+    if p_value_breusch_pagan <= alpha:
+        all_tests_passed = False
+
+    # F and t tests
+    residual_linear_model = sm.OLS(squared_residuals, t).fit()
+    f_pvalue = residual_linear_model.f_pvalue  # P-value for the F-statistic
+    diagnostics["F Test p-value"] = f_pvalue
+    diagnostics["F Test"] = "Pass" if f_pvalue > alpha else "Fail"
+    if f_pvalue <= alpha:
+        all_tests_passed = False
+
+    # 3. Normality Tests
+    # # Add test Kolmogorov-Smirnov
+    # _, p_value = stats.kstest(residuals, "norm")
+    # diagnostics["Kolmogorov-Smirnov Test p-value"] = p_value
+    # diagnostics["Kolmogorov-Smirnov Test"] = (
+    #     "Pass" if p_value > alpha else "Fail"
+    # )
+    # if p_value <= alpha:
+    #     all_tests_passed = False
+
+    # Shapiro-Wilk Test
+    _, p_value_shapiro = stats.shapiro(residuals)
+    diagnostics["Shapiro Test p-value"] = p_value_shapiro
+    diagnostics["Shapiro Test"] = "Pass" if p_value_shapiro > alpha else "Fail"
+    if p_value_shapiro <= alpha:
+        all_tests_passed = False
+
+    # Jarque-Bera Test
+    _, p_value_jarque_bera, _, _ = jarque_bera(residuals)
+    diagnostics["Jarque-Bera Test p-value"] = p_value_jarque_bera
+    diagnostics["Jarque-Bera Test"] = (
+        "Pass" if p_value_jarque_bera > alpha else "Fail"
+    )
+    if p_value_jarque_bera <= alpha:
+        all_tests_passed = False
+
+    # 4. Autocorrelation Test (Durbin-Watson Test)
+    dw_stat = durbin_watson(residuals)
+    diagnostics["Durbin-Watson stat"] = dw_stat
+    # Interpret Durbin-Watson statistic
+    if dw_stat < 1.5 or dw_stat > 2.5:
+        diagnostics["Durbin-Watson"] = "Fail"
+        all_tests_passed = False
+    else:
+        diagnostics["Durbin-Watson"] = "Pass"
+
+    # Final Verdict
+    diagnostics["Final Verdict"] = (
+        "The Residues are White Noise"
+        if all_tests_passed
+        else "The Residues are not White Noise"
+    )
+
+    return _format_diagnostics(diagnostics)
+
+
 ######################## MODELS ############################
 
 
@@ -719,8 +1177,23 @@ def simple_backward_regression(
         if (pvalues <= threshold).all() or len(pvalues) == 0:
             break
 
+        # Check for NaN p-values (numerical issues)
+        if pvalues.isna().all():
+            print(
+                "Warning: All p-values are NaN. Stopping backward elimination."
+            )
+            break
+
         # Drop the feature with the highest p-value
         worst_feature = pvalues.idxmax()
+
+        # Additional check in case idxmax returns NaN
+        if pd.isna(worst_feature):
+            print(
+                "Warning: Cannot identify worst feature (NaN). Stopping backward elimination."
+            )
+            break
+
         X = X.drop(columns=worst_feature)
         removed_features.append(worst_feature)
 
@@ -759,144 +1232,109 @@ def simple_backward_regression(
     return summary
 
 
-def gam_backward_regression(
-    X: pd.DataFrame, y: pd.Series, threshold: float = 0.20
+def simple_backward_regression_2(
+    X: pd.DataFrame,
+    y: pd.Series,
+    threshold: float = 0.20,
 ) -> dict:
     """
-    Perform backward elimination regression using Generalized Additive Models.
+    Perform backward elimination regression on training set and evaluate on validation set.
+
+    Args:
+        X: Features
+        y: Target
+        threshold: p-value threshold for feature removal
+        validation_size: Fraction of data to use for validation
+        random_state: Seed for reproducibility
+
+    Returns:
+        A dictionary containing model, diagnostics, predictions, and both train/val performance.
     """
+
+    # Split data into train and validation sets
+    n_train = int(len(X) * 0.8)  # For a 20/80 split
+    X_train, X_val = X.iloc[:n_train], X.iloc[n_train:]
+    y_train, y_val = y.iloc[:n_train], y.iloc[n_train:]
+    # Add intercept
+    X_train_const = sm.add_constant(X_train)
     removed_features = []
-    current_X = X.copy()
 
-    # Backward elimination loop
+    # Backward elimination on training set
     while True:
-        # Fit GAM model
-        gam = LinearGAM(n_splines=25).gridsearch(current_X, y)
-
-        # Get p-values for each feature
-        pvalues = pd.Series(
-            gam.statistics_["p_values"], index=current_X.columns
-        )
-
+        model = sm.OLS(y_train, X_train_const).fit()
+        pvalues = model.pvalues.drop("const", errors="ignore")
         if (pvalues <= threshold).all() or len(pvalues) == 0:
+            break
+
+        # Check for NaN p-values (numerical issues)
+        if pvalues.isna().all():
+            print(
+                "Warning: All p-values are NaN. Stopping backward elimination."
+            )
             break
 
         # Drop the feature with the highest p-value
         worst_feature = pvalues.idxmax()
-        current_X = current_X.drop(columns=worst_feature)
-        removed_features.append(worst_feature)
 
-    # Final model after elimination
-    final_features = current_X.columns.tolist()
-    final_gam = LinearGAM().fit(current_X, y)
-
-    summary = {
-        "model": final_gam,
-        "summary": final_gam.summary(),
-        "X_cols": final_features,
-        "y_true": y.copy(),
-        "y_pred": final_gam.fittedvalues.copy(),
-        "residuals": final_gam.resid.copy(),
-        "r2_score": final_gam.rsquared,
-        "adjusted_r2": final_gam.rsquared_adj,
-        "n_features": len(final_features),
-        "n_region_dummies": len(
-            [col for col in final_features if "region_" in col]
-        ),
-        "n_sector_dummies": len(
-            [col for col in final_features if "sector_" in col]
-        ),
-        "removed_features": removed_features,
-    }
-    return summary
-
-
-def simple_backward_gam(X, y, threshold=0.01):
-    features = X.columns.tolist()
-    removed_features = []
-
-    def fit_gam(feature_list):
-        if len(feature_list) == 0:
-            raise ValueError("No features left to fit the model.")
-        elif len(feature_list) == 1:
-            terms = s(0)
-        else:
-            terms = reduce(
-                lambda a, b: a + b, [s(i) for i in range(len(feature_list))]
-            )
-
-        gam = LinearGAM(terms).gridsearch(
-            X[feature_list].values, y.values, progress=False
-        )
-        return gam
-
-    def cv_deviance(feature_list):
-        kf = KFold(n_splits=5, shuffle=True, random_state=42)
-        X_vals = X[feature_list].values
-        y_vals = y.values
-        devs = []
-
-        for train_idx, test_idx in kf.split(X_vals):
-            X_train, X_test = X_vals[train_idx], X_vals[test_idx]
-            y_train, y_test = y_vals[train_idx], y_vals[test_idx]
-
-            term_list = [s(i) for i in range(len(feature_list))]
-            terms = term_list[0]
-            for t in term_list[1:]:
-                terms += t
-            model = LinearGAM(terms).gridsearch(
-                X_train, y_train, progress=False
-            )
-            y_pred = model.predict(X_test)
-            devs.append(mean_squared_error(y_test, y_pred))
-
-        return np.mean(devs)
-
-    current_features = features[:]
-    best_score = cv_deviance(current_features)
-
-    while len(current_features) > 1:
-        scores = {}
-        for feature in current_features:
-            trial_features = [
-                feat for feat in current_features if feat != feature
-            ]
-            try:
-                score = cv_deviance(trial_features)
-                scores[feature] = score
-            except Exception as e:
-                print(f"Skipping {feature} due to error: {e}")
-                continue
-
-        worst_feature, worst_score = min(scores.items(), key=lambda x: x[1])
-        if best_score - worst_score > threshold:
+        # Additional check in case idxmax returns NaN
+        if pd.isna(worst_feature):
             print(
-                f"Removing {worst_feature}: improved deviance {best_score:.4f} → {worst_score:.4f}"
+                "Warning: Cannot identify worst feature (NaN). Stopping backward elimination."
             )
-            current_features.remove(worst_feature)
-            removed_features.append(worst_feature)
-            best_score = worst_score
-        else:
             break
 
-    # Fit final model
-    final_features = current_features
-    final_model = fit_gam(final_features)
-    X_final = X[final_features]
-    y_pred = final_model.predict(X_final)
-    residuals = y.values - y_pred
-    r2 = r2_score(y, y_pred)
-    adj_r2 = 1 - (1 - r2) * (len(y) - 1) / (len(y) - len(final_features) - 1)
+        X_train_const = X_train_const.drop(columns=worst_feature)
+        removed_features.append(worst_feature)
+
+    # Final model
+    final_features = X_train_const.columns.tolist()
+    final_model = sm.OLS(y_train, X_train_const).fit()
+
+    # Prepare validation set using the same features
+    X_val_const = sm.add_constant(X_val, has_constant="add")[final_features]
+
+    # Predict
+    y_train_pred = final_model.predict(X_train_const)
+    y_val_pred = final_model.predict(X_val_const)
+
+    # Residuals
+    residuals_train = y_train - y_train_pred
+    residuals_val = y_val - y_val_pred
 
     summary = {
+        # Model Info
         "model": final_model,
         "summary": final_model.summary(),
         "X_cols": final_features,
-        "y_true": y.copy(),
-        "y_pred": y_pred.copy(),
-        "residuals": residuals.copy(),
-        "r2_score": r2,
-        "adjusted_r2": adj_r2,
+        "removed_features": removed_features,
+        # Data
+        "X_train": X_train_const,
+        "X_val": X_val_const,
+        "y_train_true": y_train.copy(),
+        "y_train_pred": y_train_pred,
+        "residuals_train": residuals_train,
+        "y_val_true": y_val.copy(),
+        "y_val_pred": y_val_pred,
+        "residuals_val": residuals_val,
+        # Performance
+        "train_r2_score": r2_score(y_train, y_train_pred),
+        "train_adjusted_r2": final_model.rsquared_adj,
+        "train_rmse": np.sqrt(mean_squared_error(y_train, y_train_pred)),
+        "train_mae": mean_absolute_error(y_train, y_train_pred),
+        "val_r2_score": r2_score(y_val, y_val_pred),
+        "val_adjusted_r2": (
+            1
+            - (1 - r2_score(y_val, y_val_pred))
+            * ((len(y_val) - 1) / (len(y_val) - len(final_features) - 1))
+        ),
+        "val_rmse": np.sqrt(mean_squared_error(y_val, y_val_pred)),
+        "val_mae": mean_absolute_error(y_val, y_val_pred),
+        # Additional diagnostics
+        "coefficients": final_model.params.to_dict(),
+        "pvalues": final_model.pvalues.to_dict(),
+        "stderr": final_model.bse.to_dict(),
+        "tvalues": final_model.tvalues.to_dict(),
+        "signs": final_model.params.apply(np.sign).to_dict(),
         "n_features": len(final_features),
         "n_region_dummies": len(
             [col for col in final_features if "region_" in col]
@@ -904,7 +1342,6 @@ def simple_backward_gam(X, y, threshold=0.01):
         "n_sector_dummies": len(
             [col for col in final_features if "sector_" in col]
         ),
-        "removed_features": removed_features,
     }
 
     return summary
@@ -998,3 +1435,256 @@ def fast_backward_gam(X, y, threshold=0.01, max_iter=5):
         "n_features": len(current_features),
         "removed_features": removed_features,
     }
+
+
+def simple_neural_network_regression(
+    X: pd.DataFrame,
+    y: pd.Series,
+    validation_size: float = 0.2,
+    hidden_layer_sizes: tuple[int, int] = (64, 64),
+) -> dict:
+    """
+    Fit a neural network regression model using MLPRegressor from scikit-learn,
+    with train/validation split and performance diagnostics.
+
+    Args:
+        X: Features (DataFrame)
+        y: Target (Series)
+
+    Returns:
+        Dictionary with model, predictions, and performance metrics
+    """
+
+    # Split data
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=validation_size, random_state=42
+    )
+
+    # Add Gaussian noise to X_train and y_train to reduce overfitting
+    noise_std_X = 0.01 * X_train.std(axis=0, ddof=0)
+    noise_std_y = 0.01 * y_train.std(ddof=0)
+    X_train = X_train + np.random.normal(0, noise_std_X, X_train.shape)
+    y_train = y_train + np.random.normal(0, noise_std_y, y_train.shape)
+
+    # Standardize features
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_val_scaled = scaler.transform(X_val)
+
+    # Fit neural network
+    model = MLPRegressor(
+        hidden_layer_sizes=hidden_layer_sizes,
+        alpha=0.001,
+        learning_rate="adaptive",
+        max_iter=1000,
+        early_stopping=True,
+        random_state=42,
+    )
+    model.fit(X_train_scaled, y_train)
+
+    # Predictions
+    y_train_pred = model.predict(X_train_scaled)
+    y_val_pred = model.predict(X_val_scaled)
+
+    # Residuals
+    residuals_train = y_train - y_train_pred
+    residuals_val = y_val - y_val_pred
+
+    summary = {
+        # Model & Structure
+        "model": model,
+        "scaler": scaler,
+        "X_cols": list(X.columns),
+        "hidden_layer_sizes": hidden_layer_sizes,
+        "n_features": X.shape[1],
+        "n_iterations": model.n_iter_,
+        "loss": model.loss_,
+        # Train Set
+        "X_train": X_train.copy(),
+        "y_train_true": y_train.copy(),
+        "y_train_pred": pd.Series(y_train_pred, index=y_train.index),
+        "residuals_train": pd.Series(residuals_train, index=y_train.index),
+        "train_r2_score": r2_score(y_train, y_train_pred),
+        "train_adjusted_r2": (
+            1
+            - (1 - r2_score(y_train, y_train_pred))
+            * ((len(y_train) - 1) / (len(y_train) - X.shape[1] - 1))
+        ),
+        "train_rmse": np.sqrt(mean_squared_error(y_train, y_train_pred)),
+        "train_mae": mean_absolute_error(y_train, y_train_pred),
+        # Validation Set
+        "X_val": X_val.copy(),
+        "y_val_true": y_val.copy(),
+        "y_val_pred": pd.Series(y_val_pred, index=y_val.index),
+        "residuals_val": pd.Series(residuals_val, index=y_val.index),
+        "val_r2_score": r2_score(y_val, y_val_pred),
+        "val_adjusted_r2": (
+            1
+            - (1 - r2_score(y_val, y_val_pred))
+            * ((len(y_val) - 1) / (len(y_val) - X.shape[1] - 1))
+        ),
+        "val_rmse": np.sqrt(mean_squared_error(y_val, y_val_pred)),
+        "val_mae": mean_absolute_error(y_val, y_val_pred),
+        # Feature Info
+        "n_region_dummies": len(
+            [col for col in X.columns if "region_" in col]
+        ),
+        "n_sector_dummies": len(
+            [col for col in X.columns if "sector_" in col]
+        ),
+    }
+
+    return summary
+
+
+def simple_neural_network_classification(
+    X: pd.DataFrame,
+    y: pd.Series,
+    validation_size: float = 0.2,
+    hidden_layer_sizes: tuple[int, int] = (64, 64),
+    alpha: float = 0.001,
+    learning_rate: Literal["constant", "invscaling", "adaptive"] = "adaptive",
+    max_iter: int = 1000,
+    early_stopping: bool = True,
+    random_state: int = 42,
+) -> dict:
+    """
+    Fit a neural network classification model using MLPClassifier from scikit-learn,
+    with train/validation split and performance diagnostics.
+
+    Args:
+        X: Features (DataFrame)
+        y: Target (Series) - should contain class labels
+        validation_size: Fraction of data to reserve for validation
+        hidden_layer_sizes: Tuple defining neurons per hidden layer
+        alpha: L2 penalty (regularization)
+        learning_rate: Learning rate schedule
+        max_iter: Maximum number of iterations
+        early_stopping: Whether to use validation-based early stopping
+        random_state: Seed for reproducibility
+
+    Returns:
+        Dictionary with model, predictions, and performance metrics
+    """
+
+    # Split data
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=validation_size, random_state=random_state, stratify=y
+    )
+
+    # Add Gaussian noise to X_train to reduce overfitting
+    noise_std_X = 0.01 * X_train.std(axis=0, ddof=0)
+    X_train = X_train + np.random.normal(0, noise_std_X, X_train.shape)
+
+    # Standardize features
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_val_scaled = scaler.transform(X_val)
+
+    # Fit neural network classifier
+    model = MLPClassifier(
+        hidden_layer_sizes=hidden_layer_sizes,
+        alpha=alpha,
+        learning_rate=learning_rate,
+        max_iter=max_iter,
+        early_stopping=early_stopping,
+        random_state=random_state,
+    )
+    model.fit(X_train_scaled, y_train)
+
+    # Predictions
+    y_train_pred = model.predict(X_train_scaled)
+    y_val_pred = model.predict(X_val_scaled)
+
+    # Prediction probabilities (if available)
+    y_train_proba = model.predict_proba(X_train_scaled)
+    y_val_proba = model.predict_proba(X_val_scaled)
+
+    # Get class labels
+    classes = model.classes_
+
+    # Performance metrics
+    train_accuracy = accuracy_score(y_train, y_train_pred)
+    val_accuracy = accuracy_score(y_val, y_val_pred)
+
+    # Handle multiclass vs binary classification metrics
+    average_method = "weighted" if len(classes) > 2 else "binary"
+
+    train_precision = precision_score(
+        y_train, y_train_pred, average=average_method, zero_division=0
+    )
+    train_recall = recall_score(
+        y_train, y_train_pred, average=average_method, zero_division=0
+    )
+    train_f1 = f1_score(
+        y_train, y_train_pred, average=average_method, zero_division=0
+    )
+
+    val_precision = precision_score(
+        y_val, y_val_pred, average=average_method, zero_division=0
+    )
+    val_recall = recall_score(
+        y_val, y_val_pred, average=average_method, zero_division=0
+    )
+    val_f1 = f1_score(
+        y_val, y_val_pred, average=average_method, zero_division=0
+    )
+
+    # Confusion matrices
+    train_cm = confusion_matrix(y_train, y_train_pred)
+    val_cm = confusion_matrix(y_val, y_val_pred)
+
+    summary = {
+        # Model & Structure
+        "model": model,
+        "scaler": scaler,
+        "X_cols": list(X.columns),
+        "classes": classes,
+        "n_classes": len(classes),
+        "hidden_layer_sizes": hidden_layer_sizes,
+        "n_features": X.shape[1],
+        "n_iterations": model.n_iter_,
+        "loss": model.loss_,
+        # Train Set
+        "X_train": X_train.copy(),
+        "y_train_true": y_train.copy(),
+        "y_train_pred": pd.Series(y_train_pred, index=y_train.index),
+        "y_train_proba": y_train_proba,
+        "train_accuracy": train_accuracy,
+        "train_precision": train_precision,
+        "train_recall": train_recall,
+        "train_f1": train_f1,
+        "train_confusion_matrix": train_cm,
+        # Validation Set
+        "X_val": X_val.copy(),
+        "y_val_true": y_val.copy(),
+        "y_val_pred": pd.Series(y_val_pred, index=y_val.index),
+        "y_val_proba": y_val_proba,
+        "val_accuracy": val_accuracy,
+        "val_precision": val_precision,
+        "val_recall": val_recall,
+        "val_f1": val_f1,
+        "val_confusion_matrix": val_cm,
+        # Feature Info
+        "n_region_dummies": len(
+            [col for col in X.columns if "region_" in col]
+        ),
+        "n_sector_dummies": len(
+            [col for col in X.columns if "sector_" in col]
+        ),
+        # Classification Reports
+        "train_classification_report": classification_report(
+            y_train,
+            y_train_pred,
+            target_names=[str(c) for c in classes],
+            output_dict=True,
+        ),
+        "val_classification_report": classification_report(
+            y_val,
+            y_val_pred,
+            target_names=[str(c) for c in classes],
+            output_dict=True,
+        ),
+    }
+
+    return summary
