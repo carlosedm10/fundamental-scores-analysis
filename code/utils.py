@@ -21,21 +21,10 @@ from sklearn.ensemble import IsolationForest
 from sklearn.svm import OneClassSVM
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.model_selection import KFold
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from sklearn.model_selection import train_test_split
-from sklearn.neural_network import MLPRegressor, MLPClassifier
-from sklearn.metrics import (
-    accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    confusion_matrix,
-    classification_report,
-)
-import shap
 
-from pygam import LinearGAM, s
-from functools import reduce
+from sklearn.model_selection import train_test_split
+
+import shap
 
 
 ################################### DATA  ###################################
@@ -529,125 +518,6 @@ def model_performance_summary(
         plt.show()
 
 
-def nn_shap_plot(
-    summary: dict,
-    title: str,
-    sample_size: int = 100,
-    plot_type: Literal["bar", "dot"] = "bar",
-    max_features: int = 10,
-    export_path: str | None = None,
-):
-    """
-    Generate SHAP summary plot for a model stored in the regression summary.
-
-    Args:
-        summary: Dictionary output from simple_neural_network_regression
-        sample_size: Number of validation samples to use for SHAP
-        plot_type: Type of SHAP plot ("bar" or "dot")
-        max_features: Maximum number of features to display (default: 10)
-        title: Custom title for the plot. If None, auto-generates based on model info
-        export_path: Path to save the plot
-
-    Returns:
-        Tuple of (explainer, shap_values, X_val_sampled)
-    """
-    model = summary["model"]
-    scaler = summary["scaler"]
-    X_cols = summary["X_cols"]
-
-    # Prepare validation data
-    X_val = summary["X_val"]
-    X_val_scaled = scaler.transform(X_val)
-
-    # Subsample to reduce SHAP computation cost
-    if sample_size < X_val_scaled.shape[0]:
-        idx = np.random.choice(
-            X_val_scaled.shape[0], sample_size, replace=False
-        )
-        X_val_sampled = X_val_scaled[idx]
-        X_val_sampled_raw = X_val.iloc[idx]
-    else:
-        X_val_sampled = X_val_scaled
-        X_val_sampled_raw = X_val
-
-    # Define model prediction function for SHAP
-    def predict_fn(x):
-        return model.predict(x)
-
-    # Use KernelExplainer for MLPRegressor
-    explainer = shap.KernelExplainer(predict_fn, X_val_sampled)
-    shap_values = explainer.shap_values(X_val_sampled)
-
-    # Plot
-    shap.summary_plot(
-        shap_values,
-        X_val_sampled_raw,
-        feature_names=X_cols,
-        plot_type=plot_type,
-        max_display=max_features,
-        show=False,
-    )
-
-    # Add title to the plot
-    plt.title(title, fontsize=14, pad=20)
-
-    if export_path:
-        os.makedirs(os.path.dirname(export_path), exist_ok=True)
-        plt.savefig(export_path)
-        plt.show()
-    else:
-        plt.show()
-
-    return explainer, shap_values, X_val_sampled_raw
-
-
-def models_scores_summary(summary_df, export_path=None):
-    """
-    For each score_type, create a transposed table showing coefficient, sign, and t-value
-    of the main score variable (e.g., 'quality') across profit horizons.
-
-    Returns a dict of transposed DataFrames keyed by score_type.
-    """
-    results = {}
-    score_types = summary_df["score_type"].unique()
-
-    for score in score_types:
-        subset = summary_df[summary_df["score_type"] == score]
-        profits = sorted(subset["profit"].unique())
-
-        rows = []
-        for profit in profits:
-            model_row = subset[subset["profit"] == profit].iloc[0]
-            coefs = model_row["coefficients"]
-            tvals = model_row["tvalues"]
-
-            coef = coefs.get(score, np.nan)  # main variable only
-            tval = tvals.get(score, np.nan)
-            sign = "+" if coef > 0 else "–" if coef < 0 else "0"
-
-            rows.append(
-                {
-                    "profit_horizon": profit,
-                    "coefficient": coef,
-                    "sign": sign,
-                    "t_value": tval,
-                }
-            )
-
-        df = pd.DataFrame(rows).set_index("profit_horizon")
-        df_t = df.transpose()  # transpose here
-
-        results[score] = df_t
-
-        if export_path:
-            os.makedirs(export_path, exist_ok=True)
-            df_t.to_csv(
-                f"{export_path}/{score}_main_score_summary_transposed.csv"
-            )
-
-    return results
-
-
 def model_performance_summary_2(
     summary_df: pd.DataFrame,
     order: list[str],
@@ -808,6 +678,126 @@ def model_performance_summary_2(
         plt.show()
     else:
         plt.show()
+
+
+def models_scores_summary(summary_df, export_path=None):
+    """
+    For each score_type, create a transposed table showing coefficient, sign, and t-value
+    of the main score variable (e.g., 'quality') across profit horizons.
+
+    Returns a dict of transposed DataFrames keyed by score_type.
+    """
+    results = {}
+    score_types = summary_df["score_type"].unique()
+
+    for score in score_types:
+        subset = summary_df[summary_df["score_type"] == score]
+        profits = sorted(subset["profit"].unique())
+
+        rows = []
+        for profit in profits:
+            model_row = subset[subset["profit"] == profit].iloc[0]
+            coefs = model_row["coefficients"]
+            tvals = model_row["tvalues"]
+
+            coef = coefs.get(score, np.nan)  # main variable only
+            tval = tvals.get(score, np.nan)
+            sign = "+" if coef > 0 else "–" if coef < 0 else "0"
+
+            rows.append(
+                {
+                    "profit_horizon": profit,
+                    "coefficient": coef,
+                    "sign": sign,
+                    "t_value": tval,
+                }
+            )
+
+        df = pd.DataFrame(rows).set_index("profit_horizon")
+        df_t = df.transpose()  # transpose here
+
+        results[score] = df_t
+
+        if export_path:
+            os.makedirs(export_path, exist_ok=True)
+            df_t.to_csv(
+                f"{export_path}/{score}_main_score_summary_transposed.csv"
+            )
+
+    return results
+
+
+def nn_shap_plot(
+    summary: dict,
+    title: str,
+    sample_size: int = 100,
+    plot_type: Literal["bar", "dot"] = "bar",
+    max_features: int = 10,
+    export_path: str | None = None,
+):
+    """
+    Generate SHAP summary plot for a model stored in the regression summary.
+
+    Args:
+        summary: Dictionary output from regressor_nn
+        sample_size: Number of validation samples to use for SHAP
+        plot_type: Type of SHAP plot ("bar" or "dot")
+        max_features: Maximum number of features to display (default: 10)
+        title: Custom title for the plot. If None, auto-generates based on model info
+        export_path: Path to save the plot
+
+    Returns:
+        Tuple of (explainer, shap_values, X_val_sampled)
+    """
+    model = summary["model"]
+    scaler = summary["scaler"]
+    X_cols = summary["X_cols"]
+    print("X_cols", X_cols)
+
+    # Prepare validation data
+    X_val = summary["X_val"]
+    X_val_scaled = scaler.transform(X_val)
+
+    # Subsample to reduce SHAP computation cost
+    if sample_size < X_val_scaled.shape[0]:
+        idx = np.random.choice(
+            X_val_scaled.shape[0], sample_size, replace=False
+        )
+        X_val_sampled = X_val_scaled[idx]
+        X_val_sampled_raw = X_val.iloc[idx]
+    else:
+        X_val_sampled = X_val_scaled
+        X_val_sampled_raw = X_val
+
+    # Define model prediction function for SHAP
+    def predict_fn(x):
+        return model.predict(x)
+
+    # Use KernelExplainer for MLPRegressor
+    explainer = shap.KernelExplainer(predict_fn, X_val_sampled)
+    shap_values = explainer.shap_values(X_val_sampled)
+
+    # Plot
+    shap.summary_plot(
+        shap_values,
+        X_val_sampled_raw,
+        feature_names=X_cols,
+        plot_type=plot_type,
+        max_display=max_features,
+        show=False,
+    )
+
+    # Add title to the plot
+    plt.title(title, fontsize=14, pad=20)
+
+    if export_path:
+        os.makedirs(os.path.dirname(export_path), exist_ok=True)
+        plt.savefig(export_path)
+        plt.show()
+    else:
+        plt.show()
+
+    return explainer, shap_values, X_val_sampled_raw
 
 
 def model_consistency_and_overfitting(
@@ -1033,7 +1023,7 @@ def plot_residual_diagnostics_2(
     if export_path:
         os.makedirs(os.path.dirname(export_path), exist_ok=True)
         plt.savefig(export_path, dpi=300, bbox_inches="tight")
-        plt.close()
+        plt.show()
     else:
         plt.show()
 
@@ -1156,535 +1146,74 @@ def check_white_noise(residuals, exog, alpha=0.2):
 ######################## MODELS ############################
 
 
-def simple_backward_regression(
-    X: pd.DataFrame, y: pd.Series, threshold: float = 0.20
-) -> dict:
-    """
-    Perform simple backward elimination regression with a threshold of 20%
-    for the p-values.
-    """
-
-    # Add intercept
-    X = sm.add_constant(X)
-
-    removed_features = []
-
-    # Backward elimination loop
-    while True:
-        model = sm.OLS(y, X).fit()
-        pvalues = model.pvalues.drop("const", errors="ignore")
-
-        if (pvalues <= threshold).all() or len(pvalues) == 0:
-            break
-
-        # Check for NaN p-values (numerical issues)
-        if pvalues.isna().all():
-            print(
-                "Warning: All p-values are NaN. Stopping backward elimination."
-            )
-            break
-
-        # Drop the feature with the highest p-value
-        worst_feature = pvalues.idxmax()
-
-        # Additional check in case idxmax returns NaN
-        if pd.isna(worst_feature):
-            print(
-                "Warning: Cannot identify worst feature (NaN). Stopping backward elimination."
-            )
-            break
-
-        X = X.drop(columns=worst_feature)
-        removed_features.append(worst_feature)
-
-    # Final model after elimination
-    final_features = X.columns.tolist()
-    final_model = sm.OLS(y, X).fit()
-    summary = {
-        # Model Information:
-        "model": final_model,
-        "summary": final_model.summary(),
-        "X_cols": final_features,
-        "removed_features": removed_features,
-        "y_true": y.copy(),
-        "y_pred": final_model.fittedvalues.copy(),
-        "residuals": final_model.resid.copy(),
-        # Performance metrics:
-        "r2_score": final_model.rsquared,
-        "adjusted_r2": final_model.rsquared_adj,
-        "rmse": np.sqrt(mean_squared_error(y, final_model.fittedvalues)),
-        "mae": np.mean(np.abs(y - final_model.fittedvalues)),
-        # Consistency and overfitting metrics:
-        "coefficients": final_model.params.to_dict(),
-        "pvalues": final_model.pvalues.to_dict(),
-        "stderr": final_model.bse.to_dict(),
-        "signs": final_model.params.apply(np.sign).to_dict(),
-        "n_features": len(final_features),
-        "n_region_dummies": len(
-            [col for col in final_features if "region_" in col]
-        ),
-        "n_sector_dummies": len(
-            [col for col in final_features if "sector_" in col]
-        ),
-        "tvalues": final_model.tvalues.to_dict(),
-        # "nobs": int(final_model.nobs),
-    }
-    return summary
-
-
-def simple_backward_regression_2(
-    X: pd.DataFrame,
-    y: pd.Series,
-    threshold: float = 0.20,
-) -> dict:
-    """
-    Perform backward elimination regression on training set and evaluate on validation set.
-
-    Args:
-        X: Features
-        y: Target
-        threshold: p-value threshold for feature removal
-        validation_size: Fraction of data to use for validation
-        random_state: Seed for reproducibility
-
-    Returns:
-        A dictionary containing model, diagnostics, predictions, and both train/val performance.
-    """
-
-    # Split data into train and validation sets
-    n_train = int(len(X) * 0.8)  # For a 20/80 split
-    X_train, X_val = X.iloc[:n_train], X.iloc[n_train:]
-    y_train, y_val = y.iloc[:n_train], y.iloc[n_train:]
-    # Add intercept
-    X_train_const = sm.add_constant(X_train)
-    removed_features = []
-
-    # Backward elimination on training set
-    while True:
-        model = sm.OLS(y_train, X_train_const).fit()
-        pvalues = model.pvalues.drop("const", errors="ignore")
-        if (pvalues <= threshold).all() or len(pvalues) == 0:
-            break
-
-        # Check for NaN p-values (numerical issues)
-        if pvalues.isna().all():
-            print(
-                "Warning: All p-values are NaN. Stopping backward elimination."
-            )
-            break
-
-        # Drop the feature with the highest p-value
-        worst_feature = pvalues.idxmax()
-
-        # Additional check in case idxmax returns NaN
-        if pd.isna(worst_feature):
-            print(
-                "Warning: Cannot identify worst feature (NaN). Stopping backward elimination."
-            )
-            break
-
-        X_train_const = X_train_const.drop(columns=worst_feature)
-        removed_features.append(worst_feature)
-
-    # Final model
-    final_features = X_train_const.columns.tolist()
-    final_model = sm.OLS(y_train, X_train_const).fit()
-
-    # Prepare validation set using the same features
-    X_val_const = sm.add_constant(X_val, has_constant="add")[final_features]
-
-    # Predict
-    y_train_pred = final_model.predict(X_train_const)
-    y_val_pred = final_model.predict(X_val_const)
-
-    # Residuals
-    residuals_train = y_train - y_train_pred
-    residuals_val = y_val - y_val_pred
-
-    summary = {
-        # Model Info
-        "model": final_model,
-        "summary": final_model.summary(),
-        "X_cols": final_features,
-        "removed_features": removed_features,
-        # Data
-        "X_train": X_train_const,
-        "X_val": X_val_const,
-        "y_train_true": y_train.copy(),
-        "y_train_pred": y_train_pred,
-        "residuals_train": residuals_train,
-        "y_val_true": y_val.copy(),
-        "y_val_pred": y_val_pred,
-        "residuals_val": residuals_val,
-        # Performance
-        "train_r2_score": r2_score(y_train, y_train_pred),
-        "train_adjusted_r2": final_model.rsquared_adj,
-        "train_rmse": np.sqrt(mean_squared_error(y_train, y_train_pred)),
-        "train_mae": mean_absolute_error(y_train, y_train_pred),
-        "val_r2_score": r2_score(y_val, y_val_pred),
-        "val_adjusted_r2": (
-            1
-            - (1 - r2_score(y_val, y_val_pred))
-            * ((len(y_val) - 1) / (len(y_val) - len(final_features) - 1))
-        ),
-        "val_rmse": np.sqrt(mean_squared_error(y_val, y_val_pred)),
-        "val_mae": mean_absolute_error(y_val, y_val_pred),
-        # Additional diagnostics
-        "coefficients": final_model.params.to_dict(),
-        "pvalues": final_model.pvalues.to_dict(),
-        "stderr": final_model.bse.to_dict(),
-        "tvalues": final_model.tvalues.to_dict(),
-        "signs": final_model.params.apply(np.sign).to_dict(),
-        "n_features": len(final_features),
-        "n_region_dummies": len(
-            [col for col in final_features if "region_" in col]
-        ),
-        "n_sector_dummies": len(
-            [col for col in final_features if "sector_" in col]
-        ),
-    }
-
-    return summary
-
-
-def fast_backward_gam(X, y, threshold=0.01, max_iter=5):
-    features = X.columns.tolist()
-    removed_features = []
-
-    def fit_gam(feature_list, use_gridsearch=True):
-        if len(feature_list) == 0:
-            raise ValueError("No features left to fit the model.")
-        elif len(feature_list) == 1:
-            terms = s(0)
-        else:
-            terms = reduce(
-                lambda a, b: a + b, [s(i) for i in range(len(feature_list))]
-            )
-        gam = LinearGAM(terms)
-        if use_gridsearch:
-            gam.gridsearch(X[feature_list].values, y.values, progress=False)
-        else:
-            gam.fit(X[feature_list].values, y.values)
-        return gam
-
-    def quick_score(feature_list):
-        # Fast deviance estimate: 3-fold CV + no gridsearch
-        kf = KFold(n_splits=3, shuffle=True, random_state=42)
-        X_vals = X[feature_list].values
-        y_vals = y.values
-        devs = []
-
-        for train_idx, test_idx in kf.split(X_vals):
-            X_train, X_test = X_vals[train_idx], X_vals[test_idx]
-            y_train, y_test = y_vals[train_idx], y_vals[test_idx]
-            model = LinearGAM(
-                reduce(
-                    lambda a, b: a + b,
-                    [s(i) for i in range(len(feature_list))],
-                )
-            ).fit(X_train, y_train)
-            y_pred = model.predict(X_test)
-            devs.append(mean_squared_error(y_test, y_pred))
-
-        return np.mean(devs)
-
-    current_features = features[:]
-    best_score = quick_score(current_features)
-    iteration = 0
-
-    while len(current_features) > 1 and iteration < max_iter:
-        scores = {}
-        for feature in current_features:
-            trial_features = [f for f in current_features if f != feature]
-            try:
-                score = quick_score(trial_features)
-                scores[feature] = score
-            except Exception as e:
-                print(f"Skipping {feature} due to error: {e}")
-                continue
-
-        worst_feature, worst_score = min(scores.items(), key=lambda x: x[1])
-        if best_score - worst_score > threshold:
-            print(
-                f"Removing {worst_feature}: improved deviance {best_score:.4f} → {worst_score:.4f}"
-            )
-            current_features.remove(worst_feature)
-            removed_features.append(worst_feature)
-            best_score = worst_score
-            iteration += 1
-        else:
-            break
-
-    # Final GAM with gridsearch for accuracy
-    final_model = fit_gam(current_features, use_gridsearch=True)
-    X_final = X[current_features]
-    y_pred = final_model.predict(X_final)
-    residuals = y.values - y_pred
-    r2 = r2_score(y, y_pred)
-    adj_r2 = 1 - (1 - r2) * (len(y) - 1) / (len(y) - len(current_features) - 1)
-
-    return {
-        "model": final_model,
-        "summary": final_model.summary(),
-        "X_cols": current_features,
-        "y_true": y.copy(),
-        "y_pred": y_pred.copy(),
-        "residuals": residuals.copy(),
-        "r2_score": r2,
-        "adjusted_r2": adj_r2,
-        "n_features": len(current_features),
-        "removed_features": removed_features,
-    }
-
-
-def simple_neural_network_regression(
+def split_by_ticker_and_time(
     X: pd.DataFrame,
     y: pd.Series,
     validation_size: float = 0.2,
-    hidden_layer_sizes: tuple[int, int] = (64, 64),
-) -> dict:
+) -> tuple:
     """
-    Fit a neural network regression model using MLPRegressor from scikit-learn,
-    with train/validation split and performance diagnostics.
+    Splits (X, y) into:
+      - train set on tickers in train_tickers minus their last n_holdout_per_ticker rows
+      - ticker-based validation: all rows for held-out tickers
+      - time-based validation: last n_holdout_per_ticker rows for each train ticker
 
     Args:
-        X: Features (DataFrame)
-        y: Target (Series)
+      X: DataFrame that MUST include columns 'ticker' and 'date' plus your features
+      y: Series of the target, indexed to X
+      validation_size: fraction of unique tickers to hold out completely
 
     Returns:
-        Dictionary with model, predictions, and performance metrics
+      (X_train, y_train,
+       X_val_tickers, y_val_tickers,
+       X_val_time,    y_val_time)
     """
+    # 1. Recombine X & y into one df
+    df = X.copy()
+    df["_target_"] = y
+    feature_cols = [c for c in X.columns if c not in ("ticker", "date")]
 
-    # Split data
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=validation_size, random_state=42
-    )
-
-    # Add Gaussian noise to X_train and y_train to reduce overfitting
-    noise_std_X = 0.01 * X_train.std(axis=0, ddof=0)
-    noise_std_y = 0.01 * y_train.std(ddof=0)
-    X_train = X_train + np.random.normal(0, noise_std_X, X_train.shape)
-    y_train = y_train + np.random.normal(0, noise_std_y, y_train.shape)
-
-    # Standardize features
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_val_scaled = scaler.transform(X_val)
-
-    # Fit neural network
-    model = MLPRegressor(
-        hidden_layer_sizes=hidden_layer_sizes,
-        alpha=0.001,
-        learning_rate="adaptive",
-        max_iter=1000,
-        early_stopping=True,
+    # 2. split tickers
+    all_tickers = df["ticker"].unique()
+    train_tickers, val_tickers = train_test_split(
+        all_tickers,
+        test_size=validation_size,
         random_state=42,
     )
-    model.fit(X_train_scaled, y_train)
 
-    # Predictions
-    y_train_pred = model.predict(X_train_scaled)
-    y_val_pred = model.predict(X_val_scaled)
+    # 3. ticker-based hold-out
+    df_val_tickers = df[df["ticker"].isin(val_tickers)].copy()
 
-    # Residuals
-    residuals_train = y_train - y_train_pred
-    residuals_val = y_val - y_val_pred
+    # 4. remaining for training/time-split
+    df_train_all = df[df["ticker"].isin(train_tickers)].copy()
+    df_train_all.sort_values(["ticker", "date"], inplace=True)
 
-    summary = {
-        # Model & Structure
-        "model": model,
-        "scaler": scaler,
-        "X_cols": list(X.columns),
-        "hidden_layer_sizes": hidden_layer_sizes,
-        "n_features": X.shape[1],
-        "n_iterations": model.n_iter_,
-        "loss": model.loss_,
-        # Train Set
-        "X_train": X_train.copy(),
-        "y_train_true": y_train.copy(),
-        "y_train_pred": pd.Series(y_train_pred, index=y_train.index),
-        "residuals_train": pd.Series(residuals_train, index=y_train.index),
-        "train_r2_score": r2_score(y_train, y_train_pred),
-        "train_adjusted_r2": (
-            1
-            - (1 - r2_score(y_train, y_train_pred))
-            * ((len(y_train) - 1) / (len(y_train) - X.shape[1] - 1))
-        ),
-        "train_rmse": np.sqrt(mean_squared_error(y_train, y_train_pred)),
-        "train_mae": mean_absolute_error(y_train, y_train_pred),
-        # Validation Set
-        "X_val": X_val.copy(),
-        "y_val_true": y_val.copy(),
-        "y_val_pred": pd.Series(y_val_pred, index=y_val.index),
-        "residuals_val": pd.Series(residuals_val, index=y_val.index),
-        "val_r2_score": r2_score(y_val, y_val_pred),
-        "val_adjusted_r2": (
-            1
-            - (1 - r2_score(y_val, y_val_pred))
-            * ((len(y_val) - 1) / (len(y_val) - X.shape[1] - 1))
-        ),
-        "val_rmse": np.sqrt(mean_squared_error(y_val, y_val_pred)),
-        "val_mae": mean_absolute_error(y_val, y_val_pred),
-        # Feature Info
-        "n_region_dummies": len(
-            [col for col in X.columns if "region_" in col]
-        ),
-        "n_sector_dummies": len(
-            [col for col in X.columns if "sector_" in col]
-        ),
-    }
-
-    return summary
-
-
-def simple_neural_network_classification(
-    X: pd.DataFrame,
-    y: pd.Series,
-    validation_size: float = 0.2,
-    hidden_layer_sizes: tuple[int, int] = (64, 64),
-    alpha: float = 0.001,
-    learning_rate: Literal["constant", "invscaling", "adaptive"] = "adaptive",
-    max_iter: int = 1000,
-    early_stopping: bool = True,
-    random_state: int = 42,
-) -> dict:
-    """
-    Fit a neural network classification model using MLPClassifier from scikit-learn,
-    with train/validation split and performance diagnostics.
-
-    Args:
-        X: Features (DataFrame)
-        y: Target (Series) - should contain class labels
-        validation_size: Fraction of data to reserve for validation
-        hidden_layer_sizes: Tuple defining neurons per hidden layer
-        alpha: L2 penalty (regularization)
-        learning_rate: Learning rate schedule
-        max_iter: Maximum number of iterations
-        early_stopping: Whether to use validation-based early stopping
-        random_state: Seed for reproducibility
-
-    Returns:
-        Dictionary with model, predictions, and performance metrics
-    """
-
-    # Split data
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=validation_size, random_state=random_state, stratify=y
+    # 5. tag last n_holdout_per_ticker rows per ticker
+    df_train_all["rank_desc"] = df_train_all.groupby("ticker")["date"].rank(
+        method="first", ascending=False
     )
 
-    # Add Gaussian noise to X_train to reduce overfitting
-    noise_std_X = 0.01 * X_train.std(axis=0, ddof=0)
-    X_train = X_train + np.random.normal(0, noise_std_X, X_train.shape)
+    # 6. time-based hold-out vs train
+    df_val_time = df_train_all[df_train_all["rank_desc"] <= 4].copy()
+    df_train = df_train_all[df_train_all["rank_desc"] > 4].copy()
 
-    # Standardize features
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_val_scaled = scaler.transform(X_val)
+    # 7. drop helper column
+    df_train.drop(columns=["rank_desc", "ticker"], inplace=True)
+    df_val_tickers.drop(columns=["ticker"], inplace=True)
+    df_val_time.drop(columns=["rank_desc", "ticker"], inplace=True)
 
-    # Fit neural network classifier
-    model = MLPClassifier(
-        hidden_layer_sizes=hidden_layer_sizes,
-        alpha=alpha,
-        learning_rate=learning_rate,
-        max_iter=max_iter,
-        early_stopping=early_stopping,
-        random_state=random_state,
+    # 8. split X/y for each
+    def split_xy(df_):
+        return df_[feature_cols].astype(float), df_["_target_"].astype(float)
+
+    X_train, y_train = split_xy(df_train)
+    X_val_tickers, y_val_tickers = split_xy(df_val_tickers)
+    X_val_time, y_val_time = split_xy(df_val_time)
+
+    return (
+        X_train,
+        y_train,
+        X_val_tickers,
+        y_val_tickers,
+        X_val_time,
+        y_val_time,
     )
-    model.fit(X_train_scaled, y_train)
-
-    # Predictions
-    y_train_pred = model.predict(X_train_scaled)
-    y_val_pred = model.predict(X_val_scaled)
-
-    # Prediction probabilities (if available)
-    y_train_proba = model.predict_proba(X_train_scaled)
-    y_val_proba = model.predict_proba(X_val_scaled)
-
-    # Get class labels
-    classes = model.classes_
-
-    # Performance metrics
-    train_accuracy = accuracy_score(y_train, y_train_pred)
-    val_accuracy = accuracy_score(y_val, y_val_pred)
-
-    # Handle multiclass vs binary classification metrics
-    average_method = "weighted" if len(classes) > 2 else "binary"
-
-    train_precision = precision_score(
-        y_train, y_train_pred, average=average_method, zero_division=0
-    )
-    train_recall = recall_score(
-        y_train, y_train_pred, average=average_method, zero_division=0
-    )
-    train_f1 = f1_score(
-        y_train, y_train_pred, average=average_method, zero_division=0
-    )
-
-    val_precision = precision_score(
-        y_val, y_val_pred, average=average_method, zero_division=0
-    )
-    val_recall = recall_score(
-        y_val, y_val_pred, average=average_method, zero_division=0
-    )
-    val_f1 = f1_score(
-        y_val, y_val_pred, average=average_method, zero_division=0
-    )
-
-    # Confusion matrices
-    train_cm = confusion_matrix(y_train, y_train_pred)
-    val_cm = confusion_matrix(y_val, y_val_pred)
-
-    summary = {
-        # Model & Structure
-        "model": model,
-        "scaler": scaler,
-        "X_cols": list(X.columns),
-        "classes": classes,
-        "n_classes": len(classes),
-        "hidden_layer_sizes": hidden_layer_sizes,
-        "n_features": X.shape[1],
-        "n_iterations": model.n_iter_,
-        "loss": model.loss_,
-        # Train Set
-        "X_train": X_train.copy(),
-        "y_train_true": y_train.copy(),
-        "y_train_pred": pd.Series(y_train_pred, index=y_train.index),
-        "y_train_proba": y_train_proba,
-        "train_accuracy": train_accuracy,
-        "train_precision": train_precision,
-        "train_recall": train_recall,
-        "train_f1": train_f1,
-        "train_confusion_matrix": train_cm,
-        # Validation Set
-        "X_val": X_val.copy(),
-        "y_val_true": y_val.copy(),
-        "y_val_pred": pd.Series(y_val_pred, index=y_val.index),
-        "y_val_proba": y_val_proba,
-        "val_accuracy": val_accuracy,
-        "val_precision": val_precision,
-        "val_recall": val_recall,
-        "val_f1": val_f1,
-        "val_confusion_matrix": val_cm,
-        # Feature Info
-        "n_region_dummies": len(
-            [col for col in X.columns if "region_" in col]
-        ),
-        "n_sector_dummies": len(
-            [col for col in X.columns if "sector_" in col]
-        ),
-        # Classification Reports
-        "train_classification_report": classification_report(
-            y_train,
-            y_train_pred,
-            target_names=[str(c) for c in classes],
-            output_dict=True,
-        ),
-        "val_classification_report": classification_report(
-            y_val,
-            y_val_pred,
-            target_names=[str(c) for c in classes],
-            output_dict=True,
-        ),
-    }
-
-    return summary

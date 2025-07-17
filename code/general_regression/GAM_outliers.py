@@ -14,10 +14,10 @@ sys.path.append(str(Path().resolve().parent))
 from utils import (
     load_data,
     separate_df_by_scores,
-    model_summary,
+    model_performance_summary,
     plot_residual_diagnostics,
     gaussian_yj_transform,
-    fast_backward_gam,
+    simple_gam,
 )
 import time
 import pandas as pd
@@ -131,13 +131,13 @@ print("\n===== Most Frequently Removed Features =====")
 print(removed_df.head(10))
 
 
-export_path = "code/single_analysis/third_model/LAT/GAM_models_summary.png"
+export_path = "code/linear_regression/third_model/LAT/GAM_models_summary.png"
 model_summary(summary_df, profits, export_path)
 
 
 # === Loop through all models and plot residual diagnostics ===
 for summary in gam_model_summaries:
-    export_path = f"code/single_analysis/third_model/LAT/{summary['score_type']}_{summary['profit']}_residuals.png"
+    export_path = f"code/linear_regression/third_model/LAT/{summary['score_type']}_{summary['profit']}_residuals.png"
 
     plot_residual_diagnostics(
         summary["residuals"],
