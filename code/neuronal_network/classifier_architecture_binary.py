@@ -1,8 +1,6 @@
 # Data Prep
 
-
 #  Imports
-
 
 import os
 import sys
@@ -12,7 +10,6 @@ from tqdm import tqdm
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 # Add the parent directory (code/) to sys.path
 sys.path.append(str(Path().resolve().parent))
@@ -20,7 +17,9 @@ from utils import (
     load_data,
     separate_df_by_scores,
 )
-from models import regressor_nn
+from models import classifier_nn
+
+#  Loading Data
 
 save = True
 
@@ -29,7 +28,7 @@ outlier_method = "IF"
 if region:
     file_name = f"Small Data future {region} - {outlier_method}"
 else:
-    file_name = f"Small Data future - {outlier_method}"
+    file_name = f"Small Test - {outlier_method}"
 
 data_path = f"./code/data/cleaned/outliers/{file_name}.csv"
 
@@ -68,47 +67,55 @@ profits = [
 ]
 dataframes = separate_df_by_scores(df)
 
-# Architecture Search
+# --- CLASSIFICATION ADAPTATION ---
+
+# For classification, we need to binarize or categorize the profit columns.
+# Here, we will create a binary target: 1 if profit > 0, else 0.
+# You can adapt this to multiclass if needed.
+
+
+# Architecture
+
 hidden_layer_configs = [
     # 1-layer
     (16,),
     (32,),
     (64,),
     (128,),
-    (256,),
-    (512,),
-    # 2-layers
-    (64, 32),
-    (128, 64),
-    (256, 128),
-    (512, 256),
-    (128, 32),
-    (256, 64),
-    # 3-layers
-    (128, 64, 32),
-    (256, 128, 64),
-    (512, 256, 128),
-    (64, 32, 16),
-    (256, 64, 16),
-    (128, 64, 8),
-    # 4 layers
-    (512, 256, 128, 64),
-    (256, 128, 64, 32),
-    (128, 64, 32, 16),
-    (64, 32, 16, 8),
-    (1024, 512, 256, 128),
-    # Bottleneck
-    (256, 64, 16),
-    (128, 32, 8),
-    (512, 128, 32),
-    (1024, 256, 64),
-    # Uniform width
-    (32, 32),
-    (64, 64),
-    (128, 128),
-    (256, 256),
-    (128, 128, 128),
-    (256, 256, 256),
+    # (256,),
+    # (512,),
+    # # 2-layers
+    # (64, 32),
+    # (128, 64),
+    # (256, 128),
+    # (512, 256),
+    # (128, 32),
+    # (256, 64),
+    # # 3-layers
+    # (128, 64, 32),
+    # (256, 128, 64),
+    # (512, 256, 128),
+    # (64, 32, 16),
+    # (256, 64, 16),
+    # (128, 64, 8),
+    # # 4 layers
+    # (512, 256, 128, 64),
+    # (256, 128, 64, 32),
+    # (128, 64, 32, 16),
+    # (64, 32, 16, 8),
+    # (1024, 512, 256, 128),
+    # # Bottleneck
+    # (256, 64, 16),
+    # (128, 32, 8),
+    # (512, 128, 32),
+    # (1024, 256, 64),
+    # # Uniform width
+    # (32, 32),
+    # (64, 64),
+    # (128, 128),
+    # (256, 256),
+    # (128, 128, 128),
+    # (256, 256, 256),
 ]
 
 # To collect all results
@@ -116,11 +123,11 @@ all_model_summaries = []
 model_count = 0
 start_time = time.perf_counter()
 
-print("🔍 Running architecture search across all models...\n")
+print("🔍 Running architecture search across all models (CLASSIFIER)...\n")
 
 # Outer loop = each NN config
 for hl_config in tqdm(hidden_layer_configs, desc="Hidden Layer Configs"):
-    reg_model_summaries = []
+    clf_model_summaries = []
     for score in scores:
         score_df = dataframes[score].copy()
 
@@ -164,14 +171,19 @@ for hl_config in tqdm(hidden_layer_configs, desc="Hidden Layer Configs"):
                 ],
                 axis=1,
             )
-            y = score_df[profit].astype(float)
+            # Binarize the profit column for classification
 
             try:
-                summary = regressor_nn(X, y, hidden_layer_sizes=hl_config)
+                summary = classifier_nn(
+                    X,
+                    score_df[profit],
+                    hidden_layer_sizes=hl_config,
+                    binary=True,
+                )
                 summary.update(
                     score_type=score, profit=profit, hidden_layer=hl_config
                 )
-                reg_model_summaries.append(summary)
+                clf_model_summaries.append(summary)
                 model_count += 1
             except Exception as e:
                 print(
@@ -180,7 +192,7 @@ for hl_config in tqdm(hidden_layer_configs, desc="Hidden Layer Configs"):
                 continue
 
     # Save all summaries for this architecture
-    all_model_summaries.extend(reg_model_summaries)
+    all_model_summaries.extend(clf_model_summaries)
 
 # Convert to DataFrame
 summary_df = pd.DataFrame(all_model_summaries)
@@ -212,10 +224,10 @@ for score in scores:
         if len(profit_data) == 0:
             continue
 
-        # Sort by validation time-based R2 score (most relevant for future prediction)
-        best_arch = profit_data.loc[profit_data["val_t_r2_score"].idxmax()]
+        # Sort by validation time-based accuracy score (most relevant for future prediction)
+        best_arch = profit_data.loc[profit_data["val_accuracy"].idxmax()]
         print(
-            f"  {profit}: {best_arch['hidden_layer']} (R²={best_arch['val_t_r2_score']:.4f})"
+            f"  {profit}: {best_arch['hidden_layer']} (Accuracy={best_arch['val_accuracy']:.4f})"
         )
 
 # --- Create plots: one image per score ---
@@ -245,7 +257,7 @@ for score in scores:
     # Get unique architectures for this score
     unique_archs = score_data["hidden_layer"].unique()
 
-    # --- LEFT PLOT: LOSS (RMSE) ---
+    # --- LEFT PLOT: LOSS (Log Loss) ---
     for profit in profits:
         if profit not in score_data["profit"].values:
             continue
@@ -254,18 +266,18 @@ for score in scores:
 
         # Extract data for plotting
         architectures = []
-        train_rmse = []
-        val_rmse = []
-        val_t_rmse = []
+        train_loss = []
+        val_loss = []
+        val_t_loss = []
 
         for arch in unique_archs:
             arch_data = profit_data[profit_data["hidden_layer"] == arch]
             if len(arch_data) > 0:
                 row = arch_data.iloc[0]  # Take first occurrence
                 architectures.append(str(arch))
-                train_rmse.append(row["train_rmse"])
-                val_rmse.append(row["val_rmse"])
-                val_t_rmse.append(row["val_t_rmse"])
+                train_loss.append(row.get("train_log_loss", np.nan))
+                val_loss.append(row.get("val_log_loss", np.nan))
+                val_t_loss.append(row.get("val_t_log_loss", np.nan))
 
         if len(architectures) > 0:
             x_pos = np.arange(len(architectures))
@@ -275,20 +287,20 @@ for score in scores:
             profit_idx = profits.index(profit)
             offset = (profit_idx - len(profits) / 2) * width
 
-            # Plot training RMSE
+            # Plot training log loss
             ax_loss.bar(
                 x_pos + offset,
-                train_rmse,
+                train_loss,
                 width,
                 label=f"{profit} (train)",
                 color=profit_colors[profit],
                 alpha=0.7,
             )
 
-            # Plot validation RMSE with different pattern
+            # Plot validation log loss with different pattern
             ax_loss.bar(
                 x_pos + offset,
-                val_rmse,
+                val_loss,
                 width,
                 label=f"{profit} (val)",
                 color=profit_colors[profit],
@@ -296,10 +308,10 @@ for score in scores:
                 hatch="//",
             )
 
-            # Plot validation time RMSE with dots
+            # Plot validation time log loss with dots
             ax_loss.scatter(
                 x_pos + offset,
-                val_t_rmse,
+                val_t_loss,
                 label=f"{profit} (val_t)",
                 color=profit_colors[profit],
                 s=50,
@@ -307,8 +319,8 @@ for score in scores:
             )
 
     ax_loss.set_xlabel("Hidden Layer Architecture")
-    ax_loss.set_ylabel("RMSE (Loss)")
-    ax_loss.set_title(f"RMSE by Architecture - {score.upper()}")
+    ax_loss.set_ylabel("Log Loss")
+    ax_loss.set_title(f"Log Loss by Architecture - {score.upper()}")
     ax_loss.set_xticks(range(len(unique_archs)))
     ax_loss.set_xticklabels(
         [str(arch) for arch in unique_archs], rotation=45, ha="right"
@@ -316,7 +328,7 @@ for score in scores:
     ax_loss.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
     ax_loss.grid(True, alpha=0.3)
 
-    # --- RIGHT PLOT: ACCURACY (R²) ---
+    # --- RIGHT PLOT: ACCURACY (Classification) ---
     for profit in profits:
         if profit not in score_data["profit"].values:
             continue
@@ -325,18 +337,18 @@ for score in scores:
 
         # Extract data for plotting
         architectures = []
-        train_r2 = []
-        val_r2 = []
-        val_t_r2 = []
+        train_acc = []
+        val_acc = []
+        val_t_acc = []
 
         for arch in unique_archs:
             arch_data = profit_data[profit_data["hidden_layer"] == arch]
             if len(arch_data) > 0:
                 row = arch_data.iloc[0]  # Take first occurrence
                 architectures.append(str(arch))
-                train_r2.append(row["train_r2_score"])
-                val_r2.append(row["val_r2_score"])
-                val_t_r2.append(row["val_t_r2_score"])
+                train_acc.append(row.get("train_accuracy", np.nan))
+                val_acc.append(row.get("val_accuracy", np.nan))
+                val_t_acc.append(row.get("val_t_accuracy", np.nan))
 
         if len(architectures) > 0:
             x_pos = np.arange(len(architectures))
@@ -346,20 +358,20 @@ for score in scores:
             profit_idx = profits.index(profit)
             offset = (profit_idx - len(profits) / 2) * width
 
-            # Plot training R²
+            # Plot training accuracy
             ax_acc.bar(
                 x_pos + offset,
-                train_r2,
+                train_acc,
                 width,
                 label=f"{profit} (train)",
                 color=profit_colors[profit],
                 alpha=0.7,
             )
 
-            # Plot validation R² with different pattern
+            # Plot validation accuracy with different pattern
             ax_acc.bar(
                 x_pos + offset,
-                val_r2,
+                val_acc,
                 width,
                 label=f"{profit} (val)",
                 color=profit_colors[profit],
@@ -367,10 +379,10 @@ for score in scores:
                 hatch="//",
             )
 
-            # Plot validation time R² with dots
+            # Plot validation time accuracy with dots
             ax_acc.scatter(
                 x_pos + offset,
-                val_t_r2,
+                val_t_acc,
                 label=f"{profit} (val_t)",
                 color=profit_colors[profit],
                 s=50,
@@ -378,8 +390,8 @@ for score in scores:
             )
 
     ax_acc.set_xlabel("Hidden Layer Architecture")
-    ax_acc.set_ylabel("R² Score (Accuracy)")
-    ax_acc.set_title(f"R² Score by Architecture - {score.upper()}")
+    ax_acc.set_ylabel("Accuracy")
+    ax_acc.set_title(f"Accuracy by Architecture - {score.upper()}")
     ax_acc.set_xticks(range(len(unique_archs)))
     ax_acc.set_xticklabels(
         [str(arch) for arch in unique_archs], rotation=45, ha="right"
@@ -390,7 +402,7 @@ for score in scores:
     plt.tight_layout()
 
     # Save plot
-    export_path = f"code/neuronal_network/regressor_nn/reg_architecture_analysis_{score}.png"
+    export_path = f"code/neuronal_network/binary_classifier_nn/class_architecture_analysis_{score}.png"
     if save:
         os.makedirs(os.path.dirname(export_path), exist_ok=True)
         plt.savefig(export_path, dpi=300, bbox_inches="tight")
@@ -428,7 +440,7 @@ for score in scores:
             if model is not None:
                 # Training loss curve
                 loss_curve = getattr(model, "loss_curve_", None)
-                # Validation loss curve (validation_scores_ for MLPRegressor contains validation loss)
+                # Validation loss curve (validation_scores_ for MLPClassifier contains validation accuracy)
                 val_loss_curve = getattr(model, "validation_scores_", None)
 
                 if loss_curve is not None:
@@ -463,7 +475,7 @@ for score in scores:
                 linestyle="-",
             )
 
-        # Plot validation loss curves
+        # Plot validation loss curves (for classifier, this is accuracy, so plot as such)
         if len(val_curves) > 0:
             # Get minimum length to align all curves
             min_len = min([len(c) for c in val_curves])
@@ -492,24 +504,24 @@ for score in scores:
 
         # Plot validation_time as final point markers (since we don't have epoch-by-epoch data)
         if len(profit_data) > 0:
-            # Get final validation_time RMSE for each model
-            final_val_t_rmse = []
+            # Get final validation_time accuracy for each model
+            final_val_t_acc = []
             final_epochs = []
 
             for idx, row in profit_data.iterrows():
                 model = row.get("model", None)
                 if model is not None:
-                    val_t_rmse = row.get("val_t_rmse", None)
+                    val_t_acc = row.get("val_t_accuracy", None)
                     n_epochs = getattr(model, "n_iter_", None)
-                    if val_t_rmse is not None and n_epochs is not None:
-                        final_val_t_rmse.append(val_t_rmse)
+                    if val_t_acc is not None and n_epochs is not None:
+                        final_val_t_acc.append(val_t_acc)
                         final_epochs.append(n_epochs)
 
-            if len(final_val_t_rmse) > 0:
+            if len(final_val_t_acc) > 0:
                 # Plot final validation_time points
                 ax.scatter(
                     final_epochs,
-                    final_val_t_rmse,
+                    final_val_t_acc,
                     color=profit_colors[profit],
                     label=f"{profit} (val_t final)",
                     s=80,
@@ -519,20 +531,18 @@ for score in scores:
 
     # Configure combined loss plot
     ax.set_xlabel("Epoch")
-    ax.set_ylabel("Loss (RMSE)")
-    ax.set_title(f"Training & Validation Loss Curves - {score.upper()}")
+    ax.set_ylabel("Loss (Log Loss) / Accuracy")
+    ax.set_title(f"Training & Validation Curves - {score.upper()}")
     ax.legend(
         title="Time Frame & Type", bbox_to_anchor=(1.05, 1), loc="upper left"
     )
     ax.grid(True, alpha=0.3)
-    ax.set_yscale("log")  # Log scale for better visualization
+    # For classifier, do not use log scale
 
     plt.tight_layout()
 
     # Save training curve plot
-    curve_export_path = (
-        f"code/neuronal_network/regressor_nn/training_curves_{score}.png"
-    )
+    curve_export_path = f"code/neuronal_network/binary_classifier_nn/training_curves_{score}.png"
     if save:
         os.makedirs(os.path.dirname(curve_export_path), exist_ok=True)
         plt.savefig(curve_export_path, dpi=300, bbox_inches="tight")
@@ -550,16 +560,16 @@ for score in scores:
     for profit in profits:
         profit_data = score_data[score_data["profit"] == profit].copy()
         if len(profit_data) > 0:
-            best_idx = profit_data["val_r2_score"].idxmax()
+            best_idx = profit_data["val_accuracy"].idxmax()
             best_row = profit_data.loc[best_idx]
             best_combinations.append(
                 {
                     "score": score,
                     "timeframe": profit,
                     "best_architecture": best_row["hidden_layer"],
-                    "val_r2_score": best_row["val_r2_score"],
-                    "val_rmse": best_row["val_rmse"],
-                    "val_mae": best_row["val_mae"],
+                    "val_accuracy": best_row["val_accuracy"],
+                    "val_log_loss": best_row.get("val_log_loss", np.nan),
+                    "val_f1": best_row.get("val_f1", np.nan),
                 }
             )
 
@@ -568,7 +578,7 @@ print("\n🎯 Best architecture for each score-timeframe combination:")
 print(best_df.to_string(index=False))
 
 if save:
-    csv_path = "code/neuronal_network/regressor_nn/best_architectures_by_score_timeframe.csv"
+    csv_path = "code/neuronal_network/binary_classifier_nn/best_architectures_by_score_timeframe.csv"
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
     best_df.to_csv(csv_path, index=False)
     print(f"\n💾 Saved: {csv_path}")
@@ -576,16 +586,16 @@ if save:
 # Overall best architectures by score
 print("\n🏅 Overall best architecture per score (averaged across timeframes):")
 overall_best = (
-    summary_df.groupby(["score_type", "hidden_layer"])["val_t_r2_score"]
+    summary_df.groupby(["score_type", "hidden_layer"])["val_accuracy"]
     .mean()
     .reset_index()
-    .sort_values("val_t_r2_score", ascending=False)
+    .sort_values("val_accuracy", ascending=False)
     .groupby("score_type")
     .first()
     .reset_index()
 )
 print(
-    overall_best[["score_type", "hidden_layer", "val_t_r2_score"]].to_string(
+    overall_best[["score_type", "hidden_layer", "val_accuracy"]].to_string(
         index=False
     )
 )

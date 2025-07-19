@@ -511,7 +511,10 @@ def model_performance_summary(
     fig.suptitle("Model Performance Summary", fontsize=18)
 
     if export_path:
-        os.makedirs(os.path.dirname(export_path), exist_ok=True)
+        try:
+            os.makedirs(os.path.dirname(export_path), exist_ok=True)
+        except Exception as e:
+            print(f"Error creating directory: {e}")
         plt.savefig(export_path, dpi=300, bbox_inches="tight")
         plt.show()
     else:

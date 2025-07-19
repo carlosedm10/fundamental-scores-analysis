@@ -13,9 +13,22 @@ from sklearn.metrics import (
     f1_score,
     confusion_matrix,
     classification_report,
+    log_loss,
 )
 
+
 from utils import split_by_ticker_and_time
+
+
+def encode_profit_column(series: pd.Series, binary: bool = True) -> pd.Series:
+    if binary:
+        return (series > 0).astype(int)
+    else:
+        bins = [-float("inf"), -0.08, -0.03, 0, 0.03, 0.08, float("inf")]
+        labels = [-3, -2, -1, 1, 2, 3]  # Negative and positive classes
+        return pd.cut(series, bins=bins, labels=labels, right=False).astype(
+            int
+        )
 
 
 def regressor_nn(
@@ -139,11 +152,7 @@ def classifier_nn(
     y: pd.Series,
     validation_size: float = 0.2,
     hidden_layer_sizes: tuple[int, int] = (64, 64),
-    alpha: float = 0.001,
-    learning_rate: Literal["constant", "invscaling", "adaptive"] = "adaptive",
-    max_iter: int = 1000,
-    early_stopping: bool = True,
-    random_state: int = 42,
+    binary: bool = True,
 ) -> dict:
     """
     Fit a neural network classification model using MLPClassifier from scikit-learn,
@@ -154,12 +163,6 @@ def classifier_nn(
         y: Target (Series) - should contain class labels
         validation_size: Fraction of data to reserve for validation
         hidden_layer_sizes: Tuple defining neurons per hidden layer
-        alpha: L2 penalty (regularization)
-        learning_rate: Learning rate schedule
-        max_iter: Maximum number of iterations
-        early_stopping: Whether to use validation-based early stopping
-        random_state: Seed for reproducibility
-
     Returns:
         Dictionary with model, predictions, and performance metrics
     """
@@ -169,8 +172,13 @@ def classifier_nn(
         split_by_ticker_and_time(X, y, validation_size=validation_size)
     )
 
+    # Encode profit column
+    y_train = encode_profit_column(y_train, binary=binary)
+    y_val = encode_profit_column(y_val, binary=binary)
+    y_val_t = encode_profit_column(y_val_t, binary=binary)
+
     # Add Gaussian noise to X_train to reduce overfitting
-    noise_std_X = 0.01 * X_train.std(axis=0, ddof=0)
+    noise_std_X = 0.1 * X_train.std(axis=0, ddof=0)
     X_train = X_train + np.random.normal(0, noise_std_X, X_train.shape)
 
     # Standardize features
@@ -182,11 +190,11 @@ def classifier_nn(
     # Fit neural network classifier
     model = MLPClassifier(
         hidden_layer_sizes=hidden_layer_sizes,
-        alpha=alpha,
-        learning_rate=learning_rate,
-        max_iter=max_iter,
-        early_stopping=early_stopping,
-        random_state=random_state,
+        alpha=0.001,
+        learning_rate="adaptive",
+        max_iter=1000,
+        early_stopping=True,
+        random_state=42,
     )
     model.fit(X_train_scaled, y_train)
 
@@ -200,10 +208,27 @@ def classifier_nn(
     y_val_proba = model.predict_proba(X_val_scaled)
     y_val_proba_t = model.predict_proba(X_val_t_scaled)
 
-    # Residuals
-    residuals_train = y_train - y_train_pred
-    residuals_val = y_val - y_val_pred
-    residuals_val_t = y_val_t - y_val_pred_t
+    # Compute accuracy and log loss
+    train_accuracy = accuracy_score(y_train, y_train_pred)
+    val_accuracy = accuracy_score(y_val, y_val_pred)
+    val_t_accuracy = accuracy_score(y_val_t, y_val_pred_t)
+
+    # Compute log loss (handle single-class edge case)
+    def _safe_log_loss(y_true, y_proba):
+        try:
+            return log_loss(y_true, y_proba)
+        except ValueError:
+            return float("nan")
+
+    train_log_loss = _safe_log_loss(y_train, y_train_proba)
+    val_log_loss = _safe_log_loss(y_val, y_val_proba)
+    val_t_log_loss = _safe_log_loss(y_val_t, y_val_proba_t)
+
+    # Compute F1 score (binary or multiclass)
+    average_type = "binary" if len(np.unique(y)) == 2 else "weighted"
+    train_f1 = f1_score(y_train, y_train_pred, average=average_type)
+    val_f1 = f1_score(y_val, y_val_pred, average=average_type)
+    val_t_f1 = f1_score(y_val_t, y_val_pred_t, average=average_type)
 
     summary = {
         # Model & Structure
@@ -218,216 +243,32 @@ def classifier_nn(
         "X_train": X_train.copy(),
         "y_train_true": y_train.copy(),
         "y_train_pred": pd.Series(y_train_pred, index=y_train.index),
-        "residuals_train": pd.Series(residuals_train, index=y_train.index),
-        "train_r2_score": r2_score(y_train, y_train_pred),
-        "train_adjusted_r2": (
-            1
-            - (1 - r2_score(y_train, y_train_pred))
-            * ((len(y_train) - 1) / (len(y_train) - X.shape[1] - 1))
-        ),
-        "train_rmse": np.sqrt(mean_squared_error(y_train, y_train_pred)),
-        "train_mae": mean_absolute_error(y_train, y_train_pred),
-        # Validation Set
-        "X_val": X_val.copy(),
-        "y_val_true": y_val.copy(),
-        "y_val_pred": pd.Series(y_val_pred, index=y_val.index),
-        "residuals_val": pd.Series(residuals_val, index=y_val.index),
-        "val_r2_score": r2_score(y_val, y_val_pred),
-        "val_adjusted_r2": (
-            1
-            - (1 - r2_score(y_val, y_val_pred))
-            * ((len(y_val) - 1) / (len(y_val) - X.shape[1] - 1))
-        ),
-        "val_rmse": np.sqrt(mean_squared_error(y_val, y_val_pred)),
-        "val_mae": mean_absolute_error(y_val, y_val_pred),
-        # Validation Set by time
-        "X_val_t": X_val_t.copy(),
-        "y_val_t_true": y_val_t.copy(),
-        "y_val_t_pred": pd.Series(y_val_pred_t, index=y_val_t.index),
-        "residuals_val_t": pd.Series(residuals_val_t, index=y_val_t.index),
-        "val_t_r2_score": r2_score(y_val_t, y_val_pred_t),
-        "val_t_adjusted_r2": (
-            1
-            - (1 - r2_score(y_val_t, y_val_pred_t))
-            * ((len(y_val_t) - 1) / (len(y_val_t) - X.shape[1] - 1))
-        ),
-        "val_t_rmse": np.sqrt(mean_squared_error(y_val_t, y_val_pred_t)),
-        "val_t_mae": mean_absolute_error(y_val_t, y_val_pred_t),
-        # Feature Info
-        "n_region_dummies": len(
-            [col for col in X.columns if "region_" in col]
-        ),
-        "n_sector_dummies": len(
-            [col for col in X.columns if "sector_" in col]
-        ),
-    }
-
-    return summary
-
-
-def classifier_nn_2(
-    X: pd.DataFrame,
-    y: pd.Series,
-    validation_size: float = 0.2,
-    hidden_layer_sizes: tuple[int, int] = (64, 64),
-    alpha: float = 0.001,
-    learning_rate: Literal["constant", "invscaling", "adaptive"] = "adaptive",
-    max_iter: int = 1000,
-    early_stopping: bool = True,
-    random_state: int = 42,
-) -> dict:
-    """
-    Fit a neural network classification model using MLPClassifier from scikit-learn,
-    with train/validation split and performance diagnostics.
-
-    Args:
-        X: Features (DataFrame)
-        y: Target (Series) - should contain class labels
-        validation_size: Fraction of data to reserve for validation
-        hidden_layer_sizes: Tuple defining neurons per hidden layer
-        alpha: L2 penalty (regularization)
-        learning_rate: Learning rate schedule
-        max_iter: Maximum number of iterations
-        early_stopping: Whether to use validation-based early stopping
-        random_state: Seed for reproducibility
-
-    Returns:
-        Dictionary with model, predictions, and performance metrics
-    """
-
-    # Split data
-    X_train, y_train, X_val, y_val, X_val_t, y_val_t = (
-        split_by_ticker_and_time(X, y, validation_size=validation_size)
-    )
-
-    # Add Gaussian noise to X_train and y_train to reduce overfitting
-    noise_std_X = 0.1 * X_train.std(axis=0, ddof=0)
-    noise_std_y = 0.1 * y_train.std(ddof=0)
-    X_train = X_train + np.random.normal(0, noise_std_X, X_train.shape)
-    y_train = y_train + np.random.normal(0, noise_std_y, y_train.shape)
-    # Standardize features
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_val_scaled = scaler.transform(X_val)
-    X_val_t_scaled = scaler.transform(X_val_t)
-
-    # Fit neural network classifier
-    model = MLPClassifier(
-        hidden_layer_sizes=hidden_layer_sizes,
-        alpha=alpha,
-        learning_rate=learning_rate,
-        max_iter=max_iter,
-        early_stopping=early_stopping,
-        random_state=random_state,
-    )
-    model.fit(X_train_scaled, y_train)
-
-    # Predictions
-    y_train_pred = model.predict(X_train_scaled)
-    y_val_pred = model.predict(X_val_scaled)
-    y_val_pred_t = model.predict(X_val_t_scaled)
-
-    # Prediction probabilities (if available)
-    y_train_proba = model.predict_proba(X_train_scaled)
-    y_val_proba = model.predict_proba(X_val_scaled)
-    y_val_proba_t = model.predict_proba(X_val_t_scaled)
-
-    # Get class labels
-    classes = model.classes_
-
-    # Performance metrics
-    train_accuracy = accuracy_score(y_train, y_train_pred)
-    val_accuracy = accuracy_score(y_val, y_val_pred)
-    val_accuracy_t = accuracy_score(y_val_t, y_val_pred_t)
-
-    # Handle multiclass vs binary classification metrics
-    average_method = "weighted" if len(classes) > 2 else "binary"
-
-    train_precision = precision_score(
-        y_train, y_train_pred, average=average_method, zero_division=0
-    )
-    train_recall = recall_score(
-        y_train, y_train_pred, average=average_method, zero_division=0
-    )
-    train_f1 = f1_score(
-        y_train, y_train_pred, average=average_method, zero_division=0
-    )
-
-    val_precision = precision_score(
-        y_val, y_val_pred, average=average_method, zero_division=0
-    )
-    val_precision_t = precision_score(
-        y_val_t, y_val_pred_t, average=average_method, zero_division=0
-    )
-    val_recall = recall_score(
-        y_val, y_val_pred, average=average_method, zero_division=0
-    )
-    val_f1 = f1_score(
-        y_val, y_val_pred, average=average_method, zero_division=0
-    )
-
-    # Confusion matrices
-    train_cm = confusion_matrix(y_train, y_train_pred)
-    val_cm = confusion_matrix(y_val, y_val_pred)
-    val_cm_t = confusion_matrix(y_val_t, y_val_pred_t)
-
-    summary = {
-        # Model & Structure
-        "model": model,
-        "scaler": scaler,
-        "X_cols": list(X.columns),
-        "classes": classes,
-        "n_classes": len(classes),
-        "hidden_layer_sizes": hidden_layer_sizes,
-        "n_features": X.shape[1],
-        "n_iterations": model.n_iter_,
-        "loss": model.loss_,
-        # Train Set
-        "X_train": X_train.copy(),
-        "y_train_true": y_train.copy(),
-        "y_train_pred": pd.Series(y_train_pred, index=y_train.index),
-        "y_train_proba": y_train_proba,
+        "y_train_proba": pd.DataFrame(y_train_proba, index=y_train.index),
         "train_accuracy": train_accuracy,
-        "train_precision": train_precision,
-        "train_recall": train_recall,
+        "train_log_loss": train_log_loss,
         "train_f1": train_f1,
-        "train_confusion_matrix": train_cm,
         # Validation Set
         "X_val": X_val.copy(),
         "y_val_true": y_val.copy(),
         "y_val_pred": pd.Series(y_val_pred, index=y_val.index),
-        "y_val_proba": y_val_proba,
+        "y_val_proba": pd.DataFrame(y_val_proba, index=y_val.index),
         "val_accuracy": val_accuracy,
-        "val_precision": val_precision,
-        "val_recall": val_recall,
+        "val_log_loss": val_log_loss,
         "val_f1": val_f1,
-        "val_confusion_matrix": val_cm,
         # Validation Set by time
         "X_val_t": X_val_t.copy(),
         "y_val_t_true": y_val_t.copy(),
         "y_val_t_pred": pd.Series(y_val_pred_t, index=y_val_t.index),
-        "y_val_t_proba": y_val_proba_t,
-        "val_t_accuracy": val_accuracy_t,
-        "val_t_precision": val_precision_t,
+        "y_val_proba_t": pd.DataFrame(y_val_proba_t, index=y_val_t.index),
+        "val_t_accuracy": val_t_accuracy,
+        "val_t_log_loss": val_t_log_loss,
+        "val_t_f1": val_t_f1,
         # Feature Info
         "n_region_dummies": len(
             [col for col in X.columns if "region_" in col]
         ),
         "n_sector_dummies": len(
             [col for col in X.columns if "sector_" in col]
-        ),
-        # Classification Reports
-        "train_classification_report": classification_report(
-            y_train,
-            y_train_pred,
-            target_names=[str(c) for c in classes],
-            output_dict=True,
-        ),
-        "val_classification_report": classification_report(
-            y_val,
-            y_val_pred,
-            target_names=[str(c) for c in classes],
-            output_dict=True,
         ),
     }
 

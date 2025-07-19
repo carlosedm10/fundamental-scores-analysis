@@ -1,0 +1,26 @@
+🎯 Best architecture for each score-timeframe combination:
+   score timeframe   best_architecture  val_t_r2  val_t_rmse  val_t_mae
+ quality profit_1m     (64, 32, 16, 8) -0.064563    0.116957   0.087710
+ quality profit_3m     (128, 128, 128) -0.211607    0.186822   0.145933
+ quality profit_6m          (128, 128) -0.037919    0.237536   0.184327
+ quality profit_1y               (16,)  0.012817    0.326209   0.248491
+ quality profit_2y     (1024, 256, 64)  0.057419    0.553886   0.383570
+ quality profit_5y     (256, 256, 256)  0.279719    0.751395   0.490850
+  growth profit_1m     (1024, 256, 64) -0.044173    0.115832   0.087024
+  growth profit_3m      (512, 128, 32) -0.195913    0.185608   0.145864
+  growth profit_6m     (256, 256, 256) -0.054428    0.239418   0.185131
+  growth profit_1y (512, 256, 128, 64)  0.017333    0.325462   0.245655
+  growth profit_2y       (256, 64, 16)  0.086325    0.545327   0.383670
+  growth profit_5y (512, 256, 128, 64)  0.310263    0.735291   0.475476
+   value profit_1m               (32,)  0.099392    0.107574   0.079428
+   value profit_3m               (16,) -0.016449    0.171116   0.132996
+   value profit_6m               (64,)  0.017230    0.231140   0.180185
+   value profit_1y               (64,)  0.039349    0.321796   0.246598
+   value profit_2y       (256, 64, 16)  0.059662    0.553227   0.396134
+   value profit_5y              (256,)  0.195520    0.794099   0.564959
+dividend profit_1m  (256, 128, 64, 32) -0.049500    0.116127   0.086639
+dividend profit_3m          (128, 128) -0.173249    0.183841   0.143480
+dividend profit_6m  (256, 128, 64, 32) -0.031372    0.236786   0.187135
+dividend profit_1y              (256,)  0.014394    0.325949   0.246619
+dividend profit_2y  (256, 128, 64, 32) -0.041402    0.582197   0.406963
+dividend profit_5y      (512, 128, 32)  0.254822    0.764271   0.524365
