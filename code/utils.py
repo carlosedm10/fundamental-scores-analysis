@@ -525,6 +525,7 @@ def model_performance_summary_2(
     summary_df: pd.DataFrame,
     order: list[str],
     export_path: str | None = None,
+    classifier: bool = False,
 ):
     """
     Extended performance summary for regression models.
@@ -549,62 +550,40 @@ def model_performance_summary_2(
 
     # Barplot of features
     ax_bar = fig.add_subplot(gs[4, :])
-
+    # --------------------------- Predictability ---------------------------
     # Train R²
     heatmap_train_r2 = summary_df.pivot(
-        index="score_type", columns="profit", values="train_r2_score"
+        index="score_type",
+        columns="profit",
+        values="train_predictability" if classifier else "train_r2_score",
     ).reindex(columns=order)
     sns.heatmap(
         heatmap_train_r2, annot=True, cmap="Blues", fmt=".2f", ax=ax_r2_train
     )
-    ax_r2_train.set_title("Train R²")
+    ax_r2_train.set_title("Train Predictability")
     ax_r2_train.set_xlabel("Profit Horizon")
     ax_r2_train.set_ylabel("Score Type")
 
     # Val R²
     heatmap_val_r2 = summary_df.pivot(
-        index="score_type", columns="profit", values="val_r2_score"
+        index="score_type",
+        columns="profit",
+        values="val_predictability" if classifier else "val_r2_score",
     ).reindex(columns=order)
     sns.heatmap(
         heatmap_val_r2, annot=True, cmap="Blues", fmt=".2f", ax=ax_r2_val
     )
-    ax_r2_val.set_title("Validation R²")
+    ax_r2_val.set_title("Validation Predictability")
     ax_r2_val.set_xlabel("Profit Horizon")
     ax_r2_val.set_ylabel("Score Type")
 
-    # Train Adjusted R²
-    heatmap_train_r2_adj = summary_df.pivot(
-        index="score_type", columns="profit", values="train_adjusted_r2"
-    ).reindex(columns=order)
-    sns.heatmap(
-        heatmap_train_r2_adj,
-        annot=True,
-        cmap="crest",
-        fmt=".2f",
-        ax=ax_r2_adj_train,
-    )
-    ax_r2_adj_train.set_title("Train Adjusted R²")
-    ax_r2_adj_train.set_xlabel("Profit Horizon")
-    ax_r2_adj_train.set_ylabel("Score Type")
-
-    # Val Adjusted R²
-    heatmap_val_r2_adj = summary_df.pivot(
-        index="score_type", columns="profit", values="val_adjusted_r2"
-    ).reindex(columns=order)
-    sns.heatmap(
-        heatmap_val_r2_adj,
-        annot=True,
-        cmap="crest",
-        fmt=".2f",
-        ax=ax_r2_adj_val,
-    )
-    ax_r2_adj_val.set_title("Validation Adjusted R²")
-    ax_r2_adj_val.set_xlabel("Profit Horizon")
-    ax_r2_adj_val.set_ylabel("Score Type")
+    # --------------------------- Accuracy ---------------------------
 
     # Train MAE
     heatmap_train_mae = summary_df.pivot(
-        index="score_type", columns="profit", values="train_mae"
+        index="score_type",
+        columns="profit",
+        values="train_mae" if not classifier else "train_accuracy",
     ).reindex(columns=order)
     sns.heatmap(
         heatmap_train_mae,
@@ -613,24 +592,30 @@ def model_performance_summary_2(
         fmt=".2f",
         ax=ax_mae_train,
     )
-    ax_mae_train.set_title("Train MAE")
+    ax_mae_train.set_title("Train Accuracy" if not classifier else "Train MAE")
     ax_mae_train.set_xlabel("Profit Horizon")
     ax_mae_train.set_ylabel("Score Type")
 
     # Val MAE
     heatmap_val_mae = summary_df.pivot(
-        index="score_type", columns="profit", values="val_mae"
+        index="score_type",
+        columns="profit",
+        values="val_mae" if not classifier else "val_accuracy",
     ).reindex(columns=order)
     sns.heatmap(
         heatmap_val_mae, annot=True, cmap="magma_r", fmt=".2f", ax=ax_mae_val
     )
-    ax_mae_val.set_title("Validation MAE")
+    ax_mae_val.set_title(
+        "Validation MAE" if not classifier else "Validation Log Loss"
+    )
     ax_mae_val.set_xlabel("Profit Horizon")
     ax_mae_val.set_ylabel("Score Type")
 
     # Train RMSE
     heatmap_train_rmse = summary_df.pivot(
-        index="score_type", columns="profit", values="train_rmse"
+        index="score_type",
+        columns="profit",
+        values="train_rmse" if not classifier else "train_strict_errors",
     ).reindex(columns=order)
     sns.heatmap(
         heatmap_train_rmse,
@@ -639,13 +624,17 @@ def model_performance_summary_2(
         fmt=".2f",
         ax=ax_rmse_train,
     )
-    ax_rmse_train.set_title("Train RMSE")
+    ax_rmse_train.set_title(
+        "Train RMSE" if not classifier else "Train Log Loss"
+    )
     ax_rmse_train.set_xlabel("Profit Horizon")
     ax_rmse_train.set_ylabel("Score Type")
 
     # Val RMSE
     heatmap_val_rmse = summary_df.pivot(
-        index="score_type", columns="profit", values="val_rmse"
+        index="score_type",
+        columns="profit",
+        values="val_rmse" if not classifier else "val_strict_errors",
     ).reindex(columns=order)
     sns.heatmap(
         heatmap_val_rmse,
@@ -654,7 +643,9 @@ def model_performance_summary_2(
         fmt=".2f",
         ax=ax_rmse_val,
     )
-    ax_rmse_val.set_title("Validation RMSE")
+    ax_rmse_val.set_title(
+        "Validation RMSE" if not classifier else "Validation Log Loss"
+    )
     ax_rmse_val.set_xlabel("Profit Horizon")
     ax_rmse_val.set_ylabel("Score Type")
 
@@ -683,7 +674,9 @@ def model_performance_summary_2(
         plt.show()
 
 
-def models_scores_summary(summary_df, export_path=None):
+def models_scores_summary(
+    summary_df, profits: None | list[str] = None, export_path=None
+):
     """
     For each score_type, create a transposed table showing coefficient, sign, and t-value
     of the main score variable (e.g., 'quality') across profit horizons.
@@ -695,7 +688,10 @@ def models_scores_summary(summary_df, export_path=None):
 
     for score in score_types:
         subset = summary_df[summary_df["score_type"] == score]
-        profits = sorted(subset["profit"].unique())
+        if profits is None:
+            profits = sorted(subset["profit"].unique())
+        else:
+            profits = profits
 
         rows = []
         for profit in profits:

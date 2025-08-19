@@ -10,7 +10,6 @@ from utils import (
     load_data,
     if_outliers,
     missing_values,
-    histogram,
     pairplot,
 )
 import time
@@ -38,7 +37,7 @@ profit_columns = [
 df_multi = df.copy()
 Y = df[profit_columns].copy()
 start_time = time.perf_counter()
-outliers_IF = if_outliers(df, profit_columns, 0.05)
+outliers_IF = if_outliers(df, profit_columns, 0.35)
 end_time = time.perf_counter()
 print(f"Time taken for outliers: {end_time - start_time} seconds")
 
@@ -48,9 +47,7 @@ df_multi["outlier"] = df_multi["outlier"].map({1: False, -1: True})
 end_time = time.perf_counter()
 print(f"Time taken for mapping outliers: {end_time - start_time} seconds")
 
-pair_path = (
-    f"./code/data/cleaned/multiple_analysis/outliers/{file_name} - IF.png"
-)
+pair_path = f"./code/data/cleaned/outliers/{file_name} - IF HARD.png"
 start_time = time.perf_counter()
 # Plotting outliers
 pairplot(df_multi, pair_path, hue="outlier")
@@ -64,18 +61,8 @@ missing_values(df, df_multi_cleaned)
 end_time = time.perf_counter()
 print(f"Time taken for deleting outliers: {end_time - start_time} seconds")
 
-export_path = (
-    f"./code/data/cleaned/multiple_analysis/plots/{file_name} - IF.png"
-)
-start_time = time.perf_counter()
-histogram(df_multi_cleaned, export_path=export_path)
-end_time = time.perf_counter()
-print(f"Time taken for the plot: {end_time - start_time} seconds")
 
-
-export_path = (
-    f"./code/data/cleaned/multiple_analysis/outliers/{file_name} - IF.csv"
-)
+export_path = f"./code/data/cleaned/outliers/{file_name} - IF HARD.csv"
 start_time = time.perf_counter()
 df_multi_cleaned.to_csv(export_path, index=False)
 end_time = time.perf_counter()

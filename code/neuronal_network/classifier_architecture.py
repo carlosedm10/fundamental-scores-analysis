@@ -24,11 +24,11 @@ from models import classifier_nn
 save = True
 
 region = None  # NOTE: If region is None, the model is run for all regions
-outlier_method = "IF"
+outlier_method = "IF HARD"
 if region:
     file_name = f"Small Data future {region} - {outlier_method}"
 else:
-    file_name = f"Small Data future - {outlier_method}"
+    file_name = f"Medium Data future - {outlier_method}"
 
 data_path = f"./code/data/cleaned/outliers/{file_name}.csv"
 
@@ -178,7 +178,7 @@ for hl_config in tqdm(hidden_layer_configs, desc="Hidden Layer Configs"):
                     X,
                     score_df[profit],
                     hidden_layer_sizes=hl_config,
-                    binary=True,
+                    binary=False,
                 )
                 summary.update(
                     score_type=score, profit=profit, hidden_layer=hl_config

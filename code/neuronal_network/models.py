@@ -8,11 +8,7 @@ from sklearn.metrics import (
     mean_squared_error,
     mean_absolute_error,
     accuracy_score,
-    precision_score,
-    recall_score,
     f1_score,
-    confusion_matrix,
-    classification_report,
     log_loss,
 )
 
@@ -208,6 +204,16 @@ def classifier_nn(
     y_val_proba = model.predict_proba(X_val_scaled)
     y_val_proba_t = model.predict_proba(X_val_t_scaled)
 
+    # Compute F1 score (binary or multiclass)
+    average_type = "binary" if len(np.unique(y)) == 2 else "weighted"
+    train_predictability = f1_score(
+        y_train, y_train_pred, average=average_type
+    )
+    val_predictability = f1_score(y_val, y_val_pred, average=average_type)
+    val_t_predictability = f1_score(
+        y_val_t, y_val_pred_t, average=average_type
+    )
+
     # Compute accuracy and log loss
     train_accuracy = accuracy_score(y_train, y_train_pred)
     val_accuracy = accuracy_score(y_val, y_val_pred)
@@ -220,15 +226,9 @@ def classifier_nn(
         except ValueError:
             return float("nan")
 
-    train_log_loss = _safe_log_loss(y_train, y_train_proba)
-    val_log_loss = _safe_log_loss(y_val, y_val_proba)
-    val_t_log_loss = _safe_log_loss(y_val_t, y_val_proba_t)
-
-    # Compute F1 score (binary or multiclass)
-    average_type = "binary" if len(np.unique(y)) == 2 else "weighted"
-    train_f1 = f1_score(y_train, y_train_pred, average=average_type)
-    val_f1 = f1_score(y_val, y_val_pred, average=average_type)
-    val_t_f1 = f1_score(y_val_t, y_val_pred_t, average=average_type)
+    train_strict_errors = _safe_log_loss(y_train, y_train_proba)
+    val_strict_errors = _safe_log_loss(y_val, y_val_proba)
+    val_t_strict_errors = _safe_log_loss(y_val_t, y_val_proba_t)
 
     summary = {
         # Model & Structure
@@ -244,25 +244,25 @@ def classifier_nn(
         "y_train_true": y_train.copy(),
         "y_train_pred": pd.Series(y_train_pred, index=y_train.index),
         "y_train_proba": pd.DataFrame(y_train_proba, index=y_train.index),
+        "train_predictability": train_predictability,
         "train_accuracy": train_accuracy,
-        "train_log_loss": train_log_loss,
-        "train_f1": train_f1,
+        "train_strict_errors": train_strict_errors,
         # Validation Set
         "X_val": X_val.copy(),
         "y_val_true": y_val.copy(),
         "y_val_pred": pd.Series(y_val_pred, index=y_val.index),
         "y_val_proba": pd.DataFrame(y_val_proba, index=y_val.index),
+        "val_predictability": val_predictability,
         "val_accuracy": val_accuracy,
-        "val_log_loss": val_log_loss,
-        "val_f1": val_f1,
+        "val_strict_errors": val_strict_errors,
         # Validation Set by time
         "X_val_t": X_val_t.copy(),
         "y_val_t_true": y_val_t.copy(),
         "y_val_t_pred": pd.Series(y_val_pred_t, index=y_val_t.index),
         "y_val_proba_t": pd.DataFrame(y_val_proba_t, index=y_val_t.index),
+        "val_t_predictability": val_t_predictability,
         "val_t_accuracy": val_t_accuracy,
-        "val_t_log_loss": val_t_log_loss,
-        "val_t_f1": val_t_f1,
+        "val_t_strict_errors": val_t_strict_errors,
         # Feature Info
         "n_region_dummies": len(
             [col for col in X.columns if "region_" in col]
