@@ -675,11 +675,16 @@ def model_performance_summary_2(
 
 
 def models_scores_summary(
-    summary_df, profits: None | list[str] = None, export_path=None
+    summary_df,
+    profits: None | list[str] = None,
+    export_path=None,
+    windowed: bool = False,
 ):
     """
     For each score_type, create a transposed table showing coefficient, sign, and t-value
     of the main score variable (e.g., 'quality') across profit horizons.
+
+    When windowed=True, creates separate tables for each score including averages and standard deviations.
 
     Returns a dict of transposed DataFrames keyed by score_type.
     """
@@ -693,35 +698,82 @@ def models_scores_summary(
         else:
             profits = profits
 
-        rows = []
-        for profit in profits:
-            model_row = subset[subset["profit"] == profit].iloc[0]
-            coefs = model_row["coefficients"]
-            tvals = model_row["tvalues"]
+        if windowed:
+            # Create windowed summary with averages and standard deviations
+            rows = []
+            for profit in profits:
+                model_row = subset[subset["profit"] == profit].iloc[0]
+                coefs = model_row["coefficients"]
+                tvals = model_row["tvalues"]
 
-            coef = coefs.get(score, np.nan)  # main variable only
-            tval = tvals.get(score, np.nan)
-            sign = "+" if coef > 0 else "–" if coef < 0 else "0"
+                # Get main score coefficient and t-value
+                coef = coefs.get(score, np.nan)
+                tval = tvals.get(score, np.nan)
+                sign = "+" if coef > 0 else "–" if coef < 0 else "0"
 
-            rows.append(
-                {
+                row_data = {
                     "profit_horizon": profit,
                     "coefficient": coef,
                     "sign": sign,
                     "t_value": tval,
                 }
-            )
 
-        df = pd.DataFrame(rows).set_index("profit_horizon")
-        df_t = df.transpose()  # transpose here
+                # Add windowed averages coefficients (3m, 6m, 12m, 24m)
+                for window in [3, 6, 12, 24]:
+                    avg_col = f"{score}_avg_{window}m"
+                    if avg_col in coefs:
+                        row_data[f"avg_{window}m_coef"] = coefs[avg_col]
+                        row_data[f"avg_{window}m_tval"] = tvals.get(
+                            avg_col, np.nan
+                        )
+
+                rows.append(row_data)
+
+            # Create DataFrame and order by profits
+            df = pd.DataFrame(rows)
+            # Ensure profits are in the correct order
+            df["profit_horizon"] = pd.Categorical(
+                df["profit_horizon"], categories=profits, ordered=True
+            )
+            df = df.sort_values("profit_horizon").set_index("profit_horizon")
+            df_t = df.transpose()
+
+        else:
+            # Original logic for non-windowed case
+            rows = []
+            for profit in profits:
+                model_row = subset[subset["profit"] == profit].iloc[0]
+                coefs = model_row["coefficients"]
+                tvals = model_row["tvalues"]
+
+                coef = coefs.get(score, np.nan)  # main variable only
+                tval = tvals.get(score, np.nan)
+                sign = "+" if coef > 0 else "–" if coef < 0 else "0"
+
+                rows.append(
+                    {
+                        "profit_horizon": profit,
+                        "coefficient": coef,
+                        "sign": sign,
+                        "t_value": tval,
+                    }
+                )
+
+            df = pd.DataFrame(rows).set_index("profit_horizon")
+            df_t = df.transpose()  # transpose here
 
         results[score] = df_t
 
         if export_path:
             os.makedirs(export_path, exist_ok=True)
-            df_t.to_csv(
-                f"{export_path}/{score}_main_score_summary_transposed.csv"
-            )
+            if windowed:
+                df_t.to_csv(
+                    f"{export_path}/{score}_windowed_summary_transposed.csv"
+                )
+            else:
+                df_t.to_csv(
+                    f"{export_path}/{score}_main_score_summary_transposed.csv"
+                )
 
     return results
 
