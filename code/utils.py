@@ -290,9 +290,15 @@ def histogram(
             max_dev = max(abs(data.min() - center), abs(data.max() - center))
             plt.xlim(center - max_dev, center + max_dev)
 
-        plt.title(f"Distribution of {column}")
-        plt.xlabel(column)
-        plt.ylabel("Frequency")
+        plt.title(
+            f"Distribution of {column}",
+            fontsize=22,  # Larger title font size
+        )
+        plt.xlabel(column, fontsize=18)  # Larger x-axis label
+        plt.ylabel("Frequency", fontsize=18)  # Larger y-axis label
+        plt.tick_params(
+            axis="both", which="major", labelsize=14
+        )  # Larger tick labels
         plt.grid(True, alpha=0.3)
 
     plt.tight_layout()
@@ -324,8 +330,8 @@ def boxplot(
     for idx, column in enumerate(columns, 1):
         plt.subplot(len(columns), 1, idx)
         sns.boxplot(data=df, y=column)
-        plt.title(f"Box Plot - {column}")
-        plt.ylabel(column)
+        plt.title(f"Box Plot - {column}", fontsize=22)
+        plt.ylabel(column, fontsize=18)
         plt.grid(True, alpha=0.3)
 
     plt.tight_layout()
@@ -352,9 +358,9 @@ def dummy_bar_plot(
     for idx, column in enumerate(columns, 1):
         plt.subplot(len(columns), 1, idx)
         df[column].value_counts().plot(kind="bar")
-        plt.title(f"Distribution of {column}")
+        plt.title(f"Distribution of {column}", fontsize=22)
         plt.xticks(rotation=45, ha="right")
-        plt.ylabel("Count")
+        plt.ylabel("Count", fontsize=18)
         plt.grid(True, alpha=0.3)
         plt.xlabel("")  # Remove x-axis label
 
@@ -391,7 +397,7 @@ def correlation_matrix(
         fmt=".2f",
         square=True,
     )
-    plt.title("Correlation Matrix of Numeric Variables")
+    plt.title("Correlation Matrix of Numeric Variables", fontsize=22)
     plt.tight_layout()
 
     if file_path:
@@ -424,6 +430,23 @@ def pairplot(
     )
     if kde:
         g.map_lower(sns.kdeplot, levels=4, color=".2")
+
+    # Hacer la leyenda mucho más grande
+    if g._legend is not None:
+        for text in g._legend.texts:
+            text.set_fontsize(24)
+        g._legend.set_title(
+            g._legend.get_title().get_text(), prop={"size": 26}
+        )
+    else:
+        # Si no hay leyenda, intentar crearla
+        g.add_legend(title=hue)
+        if g._legend is not None:
+            for text in g._legend.texts:
+                text.set_fontsize(24)
+            g._legend.set_title(
+                g._legend.get_title().get_text(), prop={"size": 26}
+            )
 
     if file_path:
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
