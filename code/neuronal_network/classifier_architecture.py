@@ -591,3 +591,10 @@ print(
         index=False
     )
 )
+
+from utils import send_email_notification
+
+send_email_notification(
+    subject="✅ NN classifier architecture",
+    body="The architecture search is complete, please check the files.",
+)

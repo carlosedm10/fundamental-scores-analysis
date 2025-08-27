@@ -160,7 +160,7 @@ print("-" * 40)
 print("Performance...")
 
 if save:
-    export_path = f"{file_name}_performance.png"
+    export_path = f"code/general_regression/{file_name} performance.png"
     model_performance_summary(summary_df, profits, export_path)
 else:
     model_performance_summary(summary_df, profits)
@@ -170,7 +170,7 @@ else:
 print("Residues...")
 
 for summary in gam_model_summaries:
-    export_path = f"residuals/{file_name}/{summary['score_type']}_{summary['profit']}_residuals.png"
+    export_path = f"code/general_regression/residuals/{file_name}/{summary['score_type']}_{summary['profit']}_residuals.png"
 
     plot_residual_diagnostics(
         summary["residuals"],
@@ -373,9 +373,7 @@ for score_type in scores:
 
             plt.tight_layout()
             if save:
-                export_path = (
-                    f"splines/2D/{file_name}/{score_type}_{feature_name}.png"
-                )
+                export_path = f"code/general_regression/splines/2D/{file_name}/{score_type}_{feature_name}.png"
                 os.makedirs(os.path.dirname(export_path), exist_ok=True)
                 plt.savefig(export_path)
                 plt.close()
@@ -557,7 +555,7 @@ for score_type in scores:
             )
             plt.tight_layout()
             if save:
-                export_path = f"splines/3D/{file_name}/{score_type}_{feature1_name}×{feature2_name}.png"
+                export_path = f"code/general_regression/splines/3D/{file_name}/{score_type}_{feature1_name}×{feature2_name}.png"
                 os.makedirs(os.path.dirname(export_path), exist_ok=True)
                 plt.savefig(export_path)
                 plt.close()
@@ -566,3 +564,10 @@ for score_type in scores:
             print(
                 f"Completed interaction plot: {feature1_name} × {feature2_name}\n"
             )
+
+from utils import send_email_notification
+
+send_email_notification(
+    subject="✅ GAM models BIG",
+    body="The GAM models are complete, please check the files.",
+)
