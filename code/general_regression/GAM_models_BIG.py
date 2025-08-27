@@ -29,41 +29,29 @@ from matplotlib import pyplot as plt
 import numpy as np
 import seaborn as sns
 
-# ## Loading the data
-
-
-#
-
+# Loading the data
+print("Loading data...")
 
 save = True
-
-region = None  # NOTE: If region is None, the model is run for all regions
-outlier_method = "IF"
-if region:
-    file_name = f"Small Data future {region} - {outlier_method}"
-else:
-    file_name = f"Big Data future - {outlier_method}"
+outlier_method = "IF HARD Balanced"
+file_name = f"Big Data future - {outlier_method}"
 
 data_path = f"./code/data/cleaned/outliers/{file_name}.csv"
 
 # Read the CSV file
 df = load_data(data_path)
+print("Data loaded", df.shape)
 
-
-# ## Variables
-
+# Variables
+print("Variables...")
 
 # Explanatory variables:
 scores = ["quality", "growth", "value", "dividend"]
 
 # Encoing dummies
 df["sector_code"] = df["sector"].astype("category").cat.codes
-
-if not region:
-    df["region_code"] = df["region"].astype("category").cat.codes
-    dummies = ["sector_code", "region_code"]
-else:
-    dummies = ["sector_code"]
+df["region_code"] = df["region"].astype("category").cat.codes
+dummies = ["sector_code", "region_code"]
 
 # Create list of tuples for sector and region encoding
 sector_encoding = list(
@@ -91,12 +79,10 @@ profits = [
 dataframes = separate_df_by_scores(df)
 
 
-# # Model Fit
-
-
-#
-
-
+# Model Fit
+print("\n" + "-" * 40)
+print("Model Fitting")
+print("-" * 40)
 start_time = time.perf_counter()
 gam_model_summaries = []
 model_count = 0
@@ -160,16 +146,18 @@ summary_df = summary_df.sort_values(["score_type"]).reset_index(drop=True)
 end_time = time.perf_counter()
 total_time = end_time - start_time
 avg_time = total_time / model_count
-
+print("Model fitting complete")
 print(f"\nTotal time: {total_time:.2f} seconds")
 print(f"Average time per model: {avg_time:.2f} seconds")
 
 
-# # Analysis
+# Analysis
+print("\n" + "-" * 40)
+print("Analysis")
+print("-" * 40)
 
-
-# ## Performance
-
+# Performance
+print("Performance...")
 
 if save:
     export_path = f"{file_name}_performance.png"
@@ -178,8 +166,8 @@ else:
     model_performance_summary(summary_df, profits)
 
 
-# ## Residues
-
+# Residues
+print("Residues...")
 
 for summary in gam_model_summaries:
     export_path = f"residuals/{file_name}/{summary['score_type']}_{summary['profit']}_residuals.png"
@@ -192,8 +180,8 @@ for summary in gam_model_summaries:
     )
 
 
-# ## 2D Plots
-
+# 2D Plots
+print("2D Plots")
 
 colors = sns.color_palette("tab10", len(profits))
 profit_colors = {profit: colors[i] for i, profit in enumerate(profits)}
@@ -398,8 +386,8 @@ for score_type in scores:
             print(f"No valid data for term {term_idx}, plot skipped")
 
 
-# ## 3D Interactions Plots
-
+# 3D Interactions Plots
+print("3D Interactions Plots")
 
 # Enable 3D plotting
 plt.rcParams["figure.max_open_warning"] = 50

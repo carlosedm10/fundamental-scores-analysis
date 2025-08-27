@@ -24,12 +24,8 @@ from models import regressor_nn
 
 save = True
 
-region = None  # NOTE: If region is None, the model is run for all regions
-outlier_method = "IF HARD"
-if region:
-    file_name = f"Small Data future {region} - {outlier_method}"
-else:
-    file_name = f"Medium Data future - {outlier_method}"
+outlier_method = "IF HARD Balanced"
+file_name = f"Big Data future - {outlier_method}"
 
 data_path = f"./code/data/cleaned/outliers/{file_name}.csv"
 
@@ -43,15 +39,8 @@ scores = ["quality", "growth", "value", "dividend"]
 dummies = [col for col in df.columns if col.startswith(("sector_", "region_"))]
 
 # Drop the reference dummy variables (i.e., base categories)
-if not region:
-    reference_dummies = [
-        "sector_Information Technology",
-        "region_Europe",
-    ]
-else:
-    reference_dummies = [
-        "sector_Information Technology",
-    ]
+reference_dummies = ["sector_Information Technology", "region_Europe"]
+
 df.drop(columns=reference_dummies, inplace=True)
 
 # Update dummies list after dropping
