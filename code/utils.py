@@ -788,15 +788,7 @@ def models_scores_summary(
         results[score] = df_t
 
         if export_path:
-            os.makedirs(export_path, exist_ok=True)
-            if windowed:
-                df_t.to_csv(
-                    f"{export_path}/{score}_windowed_summary_transposed.csv"
-                )
-            else:
-                df_t.to_csv(
-                    f"{export_path}/{score}_main_score_summary_transposed.csv"
-                )
+            df_t.to_csv(f"{export_path}.csv")
 
     return results
 
