@@ -16,7 +16,35 @@ from sklearn.metrics import (
 from utils import split_by_ticker_and_time
 
 
-def encode_profit_column(series: pd.Series, binary: bool = True) -> pd.Series:
+def _annualize_profits(y: pd.Series, profit_horizon: str) -> pd.Series:
+    """
+    Annualize profit values to put them on the same scale.
+
+    Args:
+        y: pd.Series of profits (can be in any of the supported horizons)
+        profit_horizon: str, one of ["profit_1m", "profit_3m", "profit_6m", "profit_1y", "profit_2y", "profit_5y"]
+
+    Returns:
+        pd.Series of annualized profits
+    """
+    # Map profit horizon to number of years
+    horizon_to_years = {
+        "profit_1m": 1 / 12,
+        "profit_3m": 3 / 12,
+        "profit_6m": 6 / 12,
+        "profit_1y": 1,
+        "profit_2y": 2,
+        "profit_5y": 5,
+    }
+    if profit_horizon not in horizon_to_years:
+        raise ValueError(f"Unknown profit_horizon: {profit_horizon}")
+
+    years = horizon_to_years[profit_horizon]
+    annualized = (1 + y).pow(1 / years) - 1
+    return annualized
+
+
+def _encode_profit_column(series: pd.Series, binary: bool = True) -> pd.Series:
     if binary:
         return (series > 0).astype(int)
     else:
@@ -146,6 +174,7 @@ def regressor_nn(
 def classifier_nn(
     X: pd.DataFrame,
     y: pd.Series,
+    profit_horizon: str,
     validation_size: float = 0.2,
     hidden_layer_sizes: tuple[int, int] = (64, 64),
     binary: bool = True,
@@ -162,6 +191,7 @@ def classifier_nn(
     Returns:
         Dictionary with model, predictions, and performance metrics
     """
+    y = _annualize_profits(y, profit_horizon)
 
     # Split data
     X_train, y_train, X_val, y_val, X_val_t, y_val_t = (
@@ -169,9 +199,9 @@ def classifier_nn(
     )
 
     # Encode profit column
-    y_train = encode_profit_column(y_train, binary=binary)
-    y_val = encode_profit_column(y_val, binary=binary)
-    y_val_t = encode_profit_column(y_val_t, binary=binary)
+    y_train = _encode_profit_column(y_train, binary=binary)
+    y_val = _encode_profit_column(y_val, binary=binary)
+    y_val_t = _encode_profit_column(y_val_t, binary=binary)
 
     # Add Gaussian noise to X_train to reduce overfitting
     noise_std_X = 0.1 * X_train.std(axis=0, ddof=0)

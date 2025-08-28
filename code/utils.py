@@ -87,7 +87,7 @@ def send_email_notification(
     try:
         with smtplib.SMTP("smtp.zoho.eu", 587) as server:
             server.starttls()
-            server.login(sender_email, sender_password) # type: ignore
+            server.login(sender_email, sender_password)  # type: ignore
             server.send_message(msg)
             print("Email notification sent successfully!")
     except Exception as e:
@@ -620,88 +620,152 @@ def model_performance_summary_2(
     """
     Extended performance summary for regression models.
     Displays:
-    - Train & Val R², Adj R², MAE, RMSE heatmaps
+    - Train, Unknown Val, Known Val heatmaps per metric group
+    - Metrics: Predictability (or R²), Accuracy (or MAE), Log Loss (or RMSE)
     - Barplot of number of variables
     """
-    fig = plt.figure(figsize=(24, 24))
-    gs = fig.add_gridspec(5, 2)
+    fig = plt.figure(figsize=(28, 20))
+    gs = fig.add_gridspec(4, 3)
 
-    # Axes for train
+    # Row 0: Predictability (or R²)
     ax_r2_train = fig.add_subplot(gs[0, 0])
-    ax_r2_adj_train = fig.add_subplot(gs[1, 0])
-    ax_mae_train = fig.add_subplot(gs[2, 0])
-    ax_rmse_train = fig.add_subplot(gs[3, 0])
-
-    # Axes for val
     ax_r2_val = fig.add_subplot(gs[0, 1])
-    ax_r2_adj_val = fig.add_subplot(gs[1, 1])
-    ax_mae_val = fig.add_subplot(gs[2, 1])
-    ax_rmse_val = fig.add_subplot(gs[3, 1])
+    ax_r2_val_t = fig.add_subplot(gs[0, 2])
 
-    # Barplot of features
-    ax_bar = fig.add_subplot(gs[4, :])
-    # --------------------------- Predictability ---------------------------
-    # Train R²
+    # Row 1: Accuracy (or MAE)
+    ax_acc_train = fig.add_subplot(gs[1, 0])
+    ax_acc_val = fig.add_subplot(gs[1, 1])
+    ax_acc_val_t = fig.add_subplot(gs[1, 2])
+
+    # Row 2: Log Loss (or RMSE)
+    ax_err_train = fig.add_subplot(gs[2, 0])
+    ax_err_val = fig.add_subplot(gs[2, 1])
+    ax_err_val_t = fig.add_subplot(gs[2, 2])
+
+    # --------------------------- Predictability / R² ---------------------------
+    # Train
     heatmap_train_r2 = summary_df.pivot(
         index="score_type",
         columns="profit",
         values="train_predictability" if classifier else "train_r2_score",
     ).reindex(columns=order)
     sns.heatmap(
-        heatmap_train_r2, annot=True, cmap="Blues", fmt=".2f", ax=ax_r2_train
+        heatmap_train_r2, annot=True, cmap="crest_r", fmt=".2f", ax=ax_r2_train
     )
-    ax_r2_train.set_title("Train Predictability")
+    ax_r2_train.set_title("Train Predictability" if classifier else "Train R²")
     ax_r2_train.set_xlabel("Profit Horizon")
     ax_r2_train.set_ylabel("Score Type")
 
-    # Val R²
+    # Unknown Val
     heatmap_val_r2 = summary_df.pivot(
         index="score_type",
         columns="profit",
         values="val_predictability" if classifier else "val_r2_score",
     ).reindex(columns=order)
     sns.heatmap(
-        heatmap_val_r2, annot=True, cmap="Blues", fmt=".2f", ax=ax_r2_val
+        heatmap_val_r2, annot=True, cmap="viridis", fmt=".2f", ax=ax_r2_val
     )
-    ax_r2_val.set_title("Validation Predictability")
+    ax_r2_val.set_title(
+        "Unknown Val Predictability" if classifier else "Unknown Val R²"
+    )
     ax_r2_val.set_xlabel("Profit Horizon")
     ax_r2_val.set_ylabel("Score Type")
 
-    # --------------------------- Accuracy ---------------------------
-
-    # Train MAE
-    heatmap_train_mae = summary_df.pivot(
+    # Known Val (time-based)
+    heatmap_val_t_r2 = summary_df.pivot(
         index="score_type",
         columns="profit",
-        values="train_mae" if not classifier else "train_accuracy",
+        values="val_t_predictability" if classifier else "val_t_r2_score",
     ).reindex(columns=order)
+    sns.heatmap(
+        heatmap_val_t_r2, annot=True, cmap="mako", fmt=".2f", ax=ax_r2_val_t
+    )
+    ax_r2_val_t.set_title(
+        "Known Val Predictability" if classifier else "Known Val R²"
+    )
+    ax_r2_val_t.set_xlabel("Profit Horizon")
+    ax_r2_val_t.set_ylabel("Score Type")
+
+    # --------------------------- Accuracy / MAE ---------------------------
+
+    # Train
+    if classifier:
+        heatmap_train_mae = summary_df.pivot(
+            index="score_type",
+            columns="profit",
+            values="train_accuracy",
+        ).reindex(columns=order)
+        heatmap_train_mae = 1 - heatmap_train_mae
+    else:
+        heatmap_train_mae = summary_df.pivot(
+            index="score_type",
+            columns="profit",
+            values="train_mae",
+        ).reindex(columns=order)
     sns.heatmap(
         heatmap_train_mae,
         annot=True,
         cmap="magma_r",
         fmt=".2f",
-        ax=ax_mae_train,
+        ax=ax_acc_train,
     )
-    ax_mae_train.set_title("Train Accuracy" if not classifier else "Train MAE")
-    ax_mae_train.set_xlabel("Profit Horizon")
-    ax_mae_train.set_ylabel("Score Type")
+    ax_acc_train.set_title("Train Error rate" if classifier else "Train MAE")
+    ax_acc_train.set_xlabel("Profit Horizon")
+    ax_acc_train.set_ylabel("Score Type")
 
-    # Val MAE
-    heatmap_val_mae = summary_df.pivot(
-        index="score_type",
-        columns="profit",
-        values="val_mae" if not classifier else "val_accuracy",
-    ).reindex(columns=order)
+    # Unknown Val
+    if classifier:
+        heatmap_val_mae = summary_df.pivot(
+            index="score_type",
+            columns="profit",
+            values="val_accuracy",
+        ).reindex(columns=order)
+        heatmap_val_mae = 1 - heatmap_val_mae
+    else:
+        heatmap_val_mae = summary_df.pivot(
+            index="score_type",
+            columns="profit",
+            values="val_mae",
+        ).reindex(columns=order)
     sns.heatmap(
-        heatmap_val_mae, annot=True, cmap="magma_r", fmt=".2f", ax=ax_mae_val
+        heatmap_val_mae, annot=True, cmap="magma_r", fmt=".2f", ax=ax_acc_val
     )
-    ax_mae_val.set_title(
-        "Validation MAE" if not classifier else "Validation Log Loss"
+    ax_acc_val.set_title(
+        "Unknown Val Error rate" if classifier else "Unknown Val MAE"
     )
-    ax_mae_val.set_xlabel("Profit Horizon")
-    ax_mae_val.set_ylabel("Score Type")
+    ax_acc_val.set_xlabel("Profit Horizon")
+    ax_acc_val.set_ylabel("Score Type")
 
-    # Train RMSE
+    # Known Val (time-based)
+    if classifier:
+        heatmap_val_t_mae = summary_df.pivot(
+            index="score_type",
+            columns="profit",
+            values="val_t_accuracy",
+        ).reindex(columns=order)
+        heatmap_val_t_mae = 1 - heatmap_val_t_mae
+    else:
+        heatmap_val_t_mae = summary_df.pivot(
+            index="score_type",
+            columns="profit",
+            values="val_t_mae",
+        ).reindex(columns=order)
+    sns.heatmap(
+        heatmap_val_t_mae,
+        annot=True,
+        cmap="magma_r",
+        fmt=".2f",
+        ax=ax_acc_val_t,
+    )
+    ax_acc_val_t.set_title(
+        "Known Val Error rate" if classifier else "Known Val MAE"
+    )
+    ax_acc_val_t.set_xlabel("Profit Horizon")
+    ax_acc_val_t.set_ylabel("Score Type")
+
+    # --------------------------- Log Loss / RMSE ---------------------------
+
+    # Train
     heatmap_train_rmse = summary_df.pivot(
         index="score_type",
         columns="profit",
@@ -712,49 +776,49 @@ def model_performance_summary_2(
         annot=True,
         cmap="rocket_r",
         fmt=".2f",
-        ax=ax_rmse_train,
+        ax=ax_err_train,
     )
-    ax_rmse_train.set_title(
-        "Train RMSE" if not classifier else "Train Log Loss"
-    )
-    ax_rmse_train.set_xlabel("Profit Horizon")
-    ax_rmse_train.set_ylabel("Score Type")
+    ax_err_train.set_title("Train Log Loss" if classifier else "Train RMSE")
+    ax_err_train.set_xlabel("Profit Horizon")
+    ax_err_train.set_ylabel("Score Type")
 
-    # Val RMSE
+    # Unknown Val
     heatmap_val_rmse = summary_df.pivot(
         index="score_type",
         columns="profit",
         values="val_rmse" if not classifier else "val_strict_errors",
     ).reindex(columns=order)
     sns.heatmap(
-        heatmap_val_rmse,
+        heatmap_val_rmse, annot=True, cmap="rocket_r", fmt=".2f", ax=ax_err_val
+    )
+    ax_err_val.set_title(
+        "Unknown Val Log Loss" if classifier else "Unknown Val RMSE"
+    )
+    ax_err_val.set_xlabel("Profit Horizon")
+    ax_err_val.set_ylabel("Score Type")
+
+    # Known Val (time-based)
+    heatmap_val_t_rmse = summary_df.pivot(
+        index="score_type",
+        columns="profit",
+        values="val_t_rmse" if not classifier else "val_t_strict_errors",
+    ).reindex(columns=order)
+    sns.heatmap(
+        heatmap_val_t_rmse,
         annot=True,
         cmap="rocket_r",
         fmt=".2f",
-        ax=ax_rmse_val,
+        ax=ax_err_val_t,
     )
-    ax_rmse_val.set_title(
-        "Validation RMSE" if not classifier else "Validation Log Loss"
+    ax_err_val_t.set_title(
+        "Known Val Log Loss" if classifier else "Known Val RMSE"
     )
-    ax_rmse_val.set_xlabel("Profit Horizon")
-    ax_rmse_val.set_ylabel("Score Type")
-
-    # Barplot of number of variables
-    sns.barplot(
-        data=summary_df,
-        x="profit",
-        y="n_features",
-        hue="score_type",
-        order=order,
-        ax=ax_bar,
-    )
-    ax_bar.set_title("Number of Variables in Final Models")
-    ax_bar.set_ylabel("Feature Count")
-    ax_bar.set_xlabel("Profit Horizon")
+    ax_err_val_t.set_xlabel("Profit Horizon")
+    ax_err_val_t.set_ylabel("Score Type")
 
     # Layout
     plt.tight_layout(rect=[0, 0.03, 1, 0.97])
-    fig.suptitle("Train vs Validation Model Performance", fontsize=22)
+    fig.suptitle("Train | Unknown Val | Known Val Performance", fontsize=22)
 
     if export_path:
         os.makedirs(os.path.dirname(export_path), exist_ok=True)
@@ -926,7 +990,7 @@ def nn_shap_plot(
     if export_path:
         os.makedirs(os.path.dirname(export_path), exist_ok=True)
         plt.savefig(export_path)
-        plt.show()
+        plt.close()
     else:
         plt.show()
 

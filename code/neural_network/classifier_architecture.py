@@ -23,6 +23,7 @@ from models import classifier_nn
 
 save = True
 
+
 outlier_method = "IF HARD Balanced"
 file_name = f"Big Data future - {outlier_method}"
 
@@ -38,7 +39,6 @@ scores = ["quality", "growth", "value", "dividend"]
 dummies = [col for col in df.columns if col.startswith(("sector_", "region_"))]
 
 # Drop the reference dummy variables (i.e., base categories)
-
 reference_dummies = ["sector_Information Technology", "region_Europe"]
 
 df.drop(columns=reference_dummies, inplace=True)
@@ -167,8 +167,9 @@ for hl_config in tqdm(hidden_layer_configs, desc="Hidden Layer Configs"):
                 summary = classifier_nn(
                     X,
                     score_df[profit],
+                    profit_horizon=profit,
                     hidden_layer_sizes=hl_config,
-                    binary=True,
+                    binary=False,
                 )
                 summary.update(
                     score_type=score, profit=profit, hidden_layer=hl_config
@@ -392,7 +393,7 @@ for score in scores:
     plt.tight_layout()
 
     # Save plot
-    export_path = f"code/neuronal_network/binary_classifier_nn/class_architecture_analysis_{score}.png"
+    export_path = f"code/neural_network/classifier_nn/class_architecture_analysis_{score}.png"
     if save:
         os.makedirs(os.path.dirname(export_path), exist_ok=True)
         plt.savefig(export_path, dpi=300, bbox_inches="tight")
@@ -532,7 +533,9 @@ for score in scores:
     plt.tight_layout()
 
     # Save training curve plot
-    curve_export_path = f"code/neuronal_network/binary_classifier_nn/training_curves_{score}.png"
+    curve_export_path = (
+        f"code/neural_network/classifier_nn/training_curves_{score}.png"
+    )
     if save:
         os.makedirs(os.path.dirname(curve_export_path), exist_ok=True)
         plt.savefig(curve_export_path, dpi=300, bbox_inches="tight")
@@ -568,7 +571,7 @@ print("\n🎯 Best architecture for each score-timeframe combination:")
 print(best_df.to_string(index=False))
 
 if save:
-    csv_path = "code/neuronal_network/binary_classifier_nn/best_architectures_by_score_timeframe.csv"
+    csv_path = "code/neural_network/classifier_nn/best_architectures_by_score_timeframe.csv"
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
     best_df.to_csv(csv_path, index=False)
     print(f"\n💾 Saved: {csv_path}")
@@ -593,6 +596,6 @@ print(
 from utils import send_email_notification
 
 send_email_notification(
-    subject="✅ NN binary classifier architecture",
+    subject="✅ NN classifier architecture",
     body="The architecture search is complete, please check the files.",
 )
