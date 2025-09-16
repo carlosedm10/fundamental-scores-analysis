@@ -4,5 +4,8 @@
 # */data
 **.csv
 
+# allow chunk CSVs to be committed
+!code/data/chunks/**
+
 **/__pycache__
 **.DS_Store
