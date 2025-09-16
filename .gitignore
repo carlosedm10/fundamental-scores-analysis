@@ -1,8 +1,8 @@
 *venv
 *.env
 
-*/data
-*.png
+# */data
+# *.png
 
 **/__pycache__
 **.DS_Store
