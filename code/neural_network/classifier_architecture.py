@@ -11,6 +11,12 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
+from utils import send_email_notification
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 # Add the parent directory (code/) to sys.path
 sys.path.append(str(Path().resolve().parent))
 from utils import (
@@ -593,7 +599,6 @@ print(
     )
 )
 
-from utils import send_email_notification
 
 send_email_notification(
     subject="✅ NN classifier architecture",

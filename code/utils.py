@@ -24,6 +24,7 @@ from sklearn.model_selection import KFold
 
 from sklearn.model_selection import train_test_split
 
+import matplotlib.gridspec as gridspec
 import shap
 
 import smtplib
@@ -40,8 +41,11 @@ def send_email_notification(
 ):
     # Email configuration
     sender_email = os.getenv("SENDER_EMAIL")
+    print(sender_email)
     sender_password = os.getenv("SENDER_PASSWORD")
+    print(sender_password)
     receiver_email = os.getenv("RECEIVER_EMAIL")
+    print(receiver_email)
 
     if not all([sender_email, sender_password, receiver_email]):
         print("Email configuration incomplete. Skipping email notification.")
@@ -995,6 +999,240 @@ def nn_shap_plot(
         plt.show()
 
     return explainer, shap_values, X_val_sampled_raw
+
+
+def nn_shap_table_analysis(
+    model_summaries: list[dict],
+    profits: list[str] = [
+        "profit_1m",
+        "profit_3m",
+        "profit_6m",
+        "profit_1y",
+        "profit_2y",
+        "profit_5y",
+    ],
+    sample_size: int = 100,
+    export_path: str | None = None,
+):
+    """
+    Create a comprehensive table analysis showing SHAP dependency plots
+    for specific variables across profit horizons.
+
+    Args:
+        model_summaries: List of model summary dictionaries from classifier_nn
+        profits: List of profit horizons to analyze
+        sample_size: Number of samples for SHAP analysis
+        export_path: Path to save the analysis plots
+
+    Returns:
+        Dictionary containing analysis results and plot paths
+    """
+
+    # Define the variables we want to analyze
+    variables_to_analyze = [
+        {
+            "name": "Dividend 24m average",
+            "feature": "dividend_avg_24m",
+        },
+        {
+            "name": "Growth 24m average",
+            "feature": "growth_avg_24m",
+        },
+        {
+            "name": "Quality 24m average",
+            "feature": "quality_avg_24m",
+        },
+        {"name": "Value", "feature": "value"},
+        {
+            "name": "Value 24m average",
+            "feature": "value_avg_24m",
+        },
+    ]
+
+    # Organize summaries by profit (we'll use all summaries to find our variables)
+    summary_by_profit = {}
+    for summary in model_summaries:
+        profit = summary["profit"]
+        if profit not in summary_by_profit:
+            summary_by_profit[profit] = []
+        summary_by_profit[profit].append(summary)
+
+    # Create the comprehensive plot with more space to prevent overlap
+    n_variables = len(variables_to_analyze)
+    n_profits = len(profits)
+
+    fig = plt.figure(figsize=(5 * n_profits, 3.5 * n_variables + 2))
+    gs = gridspec.GridSpec(
+        n_variables + 1,
+        n_profits + 1,  # Extra column for variable labels
+        height_ratios=[0.2] + [1] * n_variables,
+        width_ratios=[1.2] + [1] * n_profits,  # More space for labels
+        hspace=0.4,  # Increased spacing
+        wspace=0.5,  # Increased horizontal spacing to prevent overlap
+    )
+
+    # Add title row with profit headers
+    profit_labels = {
+        "profit_1m": "1M Profit",
+        "profit_3m": "3M Profit",
+        "profit_6m": "6M Profit",
+        "profit_1y": "1Y Profit",
+        "profit_2y": "2Y Profit",
+        "profit_5y": "5Y Profit",
+    }
+
+    for j, profit in enumerate(profits):
+        ax = fig.add_subplot(gs[0, j + 1])  # +1 to account for label column
+        ax.text(
+            0.5,
+            0.5,
+            profit_labels.get(profit, profit),
+            ha="center",
+            va="center",
+            fontsize=14,
+            fontweight="bold",
+        )
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.axis("off")
+
+    # Create SHAP plots for each variable-profit combination
+    analysis_results = {}
+
+    for i, var_info in enumerate(variables_to_analyze):
+        var_name = var_info["name"]
+        feature = var_info["feature"]
+
+        analysis_results[var_name] = {}
+
+        # Add variable label in the left column
+        ax_label = fig.add_subplot(gs[i + 1, 0])
+        ax_label.text(
+            0.5,
+            0.5,
+            var_name,
+            ha="center",
+            va="center",
+            fontsize=12,
+            fontweight="bold",
+            wrap=True,
+        )
+        ax_label.set_xlim(0, 1)
+        ax_label.set_ylim(0, 1)
+        ax_label.axis("off")
+
+        for j, profit in enumerate(profits):
+            ax = fig.add_subplot(
+                gs[i + 1, j + 1]
+            )  # +1 to account for label column
+
+            # Find a summary that contains our feature for this profit
+            summary = None
+            if profit in summary_by_profit:
+                for candidate_summary in summary_by_profit[profit]:
+                    if feature in candidate_summary["X_cols"]:
+                        summary = candidate_summary
+                        break
+
+            if summary is not None:
+                try:
+                    # Generate SHAP values
+                    model = summary["model"]
+                    scaler = summary["scaler"]
+                    X_cols = summary["X_cols"]
+                    X_val = summary["X_val"]
+                    X_val_scaled = scaler.transform(X_val)
+
+                    # Subsample for SHAP
+                    if sample_size < X_val_scaled.shape[0]:
+                        idx = np.random.choice(
+                            X_val_scaled.shape[0], sample_size, replace=False
+                        )
+                        X_val_sampled = X_val_scaled[idx]
+                        X_val_sampled_raw = X_val.iloc[idx]
+                    else:
+                        X_val_sampled = X_val_scaled
+                        X_val_sampled_raw = X_val
+
+                    # Create SHAP explainer
+                    def predict_fn(x):
+                        return (
+                            model.predict_proba(x)[:, 1]
+                            if hasattr(model, "predict_proba")
+                            else model.predict(x)
+                        )
+
+                    explainer = shap.KernelExplainer(
+                        predict_fn,
+                        X_val_sampled,
+                    )
+                    shap_values = explainer.shap_values(X_val_sampled)
+
+                    # Focus on the specific feature for dependency plot
+                    feature_idx = X_cols.index(feature)
+
+                    # Create a dependency plot: variable vs its own SHAP values
+                    plt.sca(ax)
+                    shap.dependence_plot(
+                        feature_idx,  # Feature to plot on X-axis
+                        shap_values,  # SHAP values for Y-axis
+                        X_val_sampled_raw,
+                        feature_names=X_cols,
+                        interaction_index=None,  # Let SHAP choose the best interaction feature for coloring
+                        show=False,
+                        ax=ax,
+                    )
+
+                    # Remove the title since we have variable names on the left
+                    ax.set_title("", fontsize=8)
+
+                    analysis_results[var_name][profit] = {
+                        "shap_values": shap_values,
+                        "feature_idx": feature_idx,
+                    }
+
+                except Exception as e:
+                    ax.text(
+                        0.5,
+                        0.5,
+                        f"Error:\n{str(e)[:30]}...",
+                        ha="center",
+                        va="center",
+                        fontsize=8,
+                        color="red",
+                    )
+                    ax.set_xlim(0, 1)
+                    ax.set_ylim(0, 1)
+                    print(f"Error processing {var_name}-{profit}: {e}")
+            else:
+                ax.text(
+                    0.5,
+                    0.5,
+                    "No Data",
+                    ha="center",
+                    va="center",
+                    fontsize=10,
+                    color="gray",
+                )
+                ax.set_xlim(0, 1)
+                ax.set_ylim(0, 1)
+                ax.axis("off")
+
+    plt.suptitle(
+        "Neural Network SHAP Dependency Analysis by Variable and Profit Horizon",
+        fontsize=16,
+        y=0.98,
+    )
+
+    if export_path:
+        os.makedirs(os.path.dirname(export_path), exist_ok=True)
+        plt.savefig(export_path, dpi=300, bbox_inches="tight")
+        plt.show()
+        print(f"SHAP table analysis saved to: {export_path}")
+    else:
+        plt.show()
+
+    return analysis_results
 
 
 def model_consistency_and_overfitting(

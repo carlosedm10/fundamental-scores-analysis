@@ -1,3 +1,4 @@
+import gc
 from typing import Literal
 import numpy as np
 import pandas as pd
@@ -50,9 +51,12 @@ def _encode_profit_column(series: pd.Series, binary: bool = True) -> pd.Series:
     else:
         bins = [-float("inf"), -0.08, -0.03, 0, 0.03, 0.08, float("inf")]
         labels = [-3, -2, -1, 1, 2, 3]  # Negative and positive classes
-        return pd.cut(series, bins=bins, labels=labels, right=False).astype(
-            int
-        )
+        categorized = pd.cut(series, bins=bins, labels=labels, right=False)
+        # Handle NaN values by converting to a specific category or filling with 0
+        # Convert to float first to handle NaN, then to int
+        result = categorized.astype(float)
+        result = result.fillna(0)  # Fill NaN with neutral class 0
+        return result.astype(int)
 
 
 def regressor_nn(
@@ -111,6 +115,11 @@ def regressor_nn(
     residuals_val = y_val - y_val_pred
     residuals_val_t = y_val_t - y_val_pred_t
 
+    # Calculate metrics
+    train_r2 = r2_score(y_train, y_train_pred)
+    val_r2 = r2_score(y_val, y_val_pred)
+    val_t_r2 = r2_score(y_val_t, y_val_pred_t)
+
     summary = {
         # Model & Structure
         "model": model,
@@ -128,7 +137,7 @@ def regressor_nn(
         "train_r2_score": r2_score(y_train, y_train_pred),
         "train_adjusted_r2": (
             1
-            - (1 - r2_score(y_train, y_train_pred))
+            - (1 - train_r2)
             * ((len(y_train) - 1) / (len(y_train) - X.shape[1] - 1))
         ),
         "train_rmse": np.sqrt(mean_squared_error(y_train, y_train_pred)),
@@ -141,8 +150,7 @@ def regressor_nn(
         "val_r2_score": r2_score(y_val, y_val_pred),
         "val_adjusted_r2": (
             1
-            - (1 - r2_score(y_val, y_val_pred))
-            * ((len(y_val) - 1) / (len(y_val) - X.shape[1] - 1))
+            - (1 - val_r2) * ((len(y_val) - 1) / (len(y_val) - X.shape[1] - 1))
         ),
         "val_rmse": np.sqrt(mean_squared_error(y_val, y_val_pred)),
         "val_mae": mean_absolute_error(y_val, y_val_pred),
@@ -154,7 +162,7 @@ def regressor_nn(
         "val_t_r2_score": r2_score(y_val_t, y_val_pred_t),
         "val_t_adjusted_r2": (
             1
-            - (1 - r2_score(y_val_t, y_val_pred_t))
+            - (1 - val_t_r2)
             * ((len(y_val_t) - 1) / (len(y_val_t) - X.shape[1] - 1))
         ),
         "val_t_rmse": np.sqrt(mean_squared_error(y_val_t, y_val_pred_t)),
@@ -167,6 +175,13 @@ def regressor_nn(
             [col for col in X.columns if "sector_" in col]
         ),
     }
+
+    # Clean up large objects to free memory
+    del X_train, y_train, X_val, y_val, X_val_t, y_val_t
+    del X_train_scaled, X_val_scaled, X_val_t_scaled
+    del y_train_pred, y_val_pred, y_val_pred_t
+    del residuals_train, residuals_val, residuals_val_t
+    gc.collect()
 
     return summary
 
@@ -301,5 +316,12 @@ def classifier_nn(
             [col for col in X.columns if "sector_" in col]
         ),
     }
+
+    # Clean up large objects to free memory
+    del X_train, y_train, X_val, y_val, X_val_t, y_val_t
+    del X_train_scaled, X_val_scaled, X_val_t_scaled
+    del y_train_pred, y_val_pred, y_val_pred_t
+    del y_train_proba, y_val_proba, y_val_proba_t
+    gc.collect()
 
     return summary

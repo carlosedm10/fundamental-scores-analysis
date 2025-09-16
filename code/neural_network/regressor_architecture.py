@@ -24,8 +24,8 @@ from models import regressor_nn
 
 save = True
 
-outlier_method = "IF HARD Balanced"
-file_name = f"Big Data future - {outlier_method}"
+outlier_method = "IF"
+file_name = f"Small Test - {outlier_method}"
 
 data_path = f"./code/data/cleaned/outliers/{file_name}.csv"
 
