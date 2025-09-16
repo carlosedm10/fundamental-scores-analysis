@@ -7,7 +7,8 @@ from pathlib import Path
 def split_csv(
     input_path: Path,
     target_chunk_bytes: int = 1900 * 1024 * 1024,
-    suffix_template: str = ".part{index:03d}.csv",
+    suffix_template: str = "part{index:03d}.csv",
+    output_dir: Path | None = None,
 ):
     input_path = Path(input_path)
     if not input_path.exists():
@@ -27,9 +28,13 @@ def split_csv(
             nonlocal out_file, bytes_in_chunk
             if out_file:
                 out_file.close()
-            chunk_name = input_path.with_name(
-                input_path.name + suffix_template.format(index=idx)
-            )
+            # determine output path
+            if output_dir is None:
+                chunk_dir = input_path.parent / f"{input_path.stem}_chunks"
+            else:
+                chunk_dir = Path(output_dir) / input_path.stem
+            chunk_dir.mkdir(parents=True, exist_ok=True)
+            chunk_name = chunk_dir / suffix_template.format(index=idx)
             # Avoid overwriting existing chunks
             if chunk_name.exists():
                 chunk_name.unlink()
@@ -69,10 +74,18 @@ def main():
         default=1900,
         help="Target chunk size in MB (default: 1900)",
     )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="Base output directory for chunks (default: alongside file in <stem>_chunks/)",
+    )
     args = parser.parse_args()
 
     target_bytes = args.size_mb * 1024 * 1024
-    out_files = split_csv(args.csv, target_chunk_bytes=target_bytes)
+    out_files = split_csv(
+        args.csv, target_chunk_bytes=target_bytes, output_dir=args.out_dir
+    )
     for p in out_files:
         print(p)
 
