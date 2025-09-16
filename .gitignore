@@ -2,7 +2,7 @@
 *.env
 
 # */data
-# *.png
+**.csv
 
 **/__pycache__
 **.DS_Store
