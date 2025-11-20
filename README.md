@@ -69,14 +69,6 @@ By combining **financial theory, econometrics, data engineering, and machine lea
 
 ---
 
-## 🚀 Future Work
-- Incorporate **social listening** and qualitative data (news, transcripts, reviews).  
-- Explore **multimodal AI approaches** for better alpha prediction.  
-- Enhance backtesting with live market integration.  
-- Apply explainable AI (XAI) for better interpretability of investment models.  
-
----
-
 ## 📖 Citation
 If you use this work, please cite:  
 
