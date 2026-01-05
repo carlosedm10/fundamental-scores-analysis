@@ -1,4 +1,4 @@
-# Evaluating Score-Investing Methodologies  
+# Evaluating Tweenvest Score-Investing Methodologies  
 _A systematic review of Tweenvest’s algorithm for long-term stock investing using descriptive analytics and predictive modeling_
 
 ## 📌 Overview
